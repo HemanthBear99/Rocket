@@ -136,4 +136,4 @@ cython_debug/
 
 # Project specific
 plots/
-*.png
+
