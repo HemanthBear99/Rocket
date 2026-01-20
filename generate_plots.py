@@ -6,7 +6,7 @@ This script runs the simulation and generates comprehensive visualizations.
 
 import sys
 import os
-sys.path.insert(0, 'd:/T-client')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -370,25 +370,15 @@ def plot_altitude_vs_velocity(log, save_dir):
     return path
 
 
-def main():
-    print("="*70)
-    print("RLV Phase-I Simulation - Generating All Plots")
-    print("="*70)
-    
-    # Create output directory
-    save_dir = 'd:/T-client/plots'
-    os.makedirs(save_dir, exist_ok=True)
-    print(f"\nPlots will be saved to: {save_dir}\n")
-    
-    # Run simulation
-    print("Running simulation...")
-    final_state, log, reason = run_simulation(verbose=True)
-    
+def generate_all_plots(log, final_state, save_dir):
+    """Generate all standard plots from simulation log."""
     print("\n" + "="*70)
-    print("Generating plots...")
-    print("="*70 + "\n")
+    print("Generating Standard Plots...")
+    print("="*70)
     
-    # Generate all plots
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"Saving to: {save_dir}\n")
+    
     saved_plots = []
     
     saved_plots.append(plot_altitude_velocity(log, save_dir))
@@ -399,17 +389,14 @@ def main():
     saved_plots.append(plot_flight_summary(log, final_state, save_dir))
     saved_plots.append(plot_altitude_vs_velocity(log, save_dir))
     
-    print("\n" + "="*70)
-    print("ALL PLOTS SAVED SUCCESSFULLY")
-    print("="*70)
-    print(f"\nTotal plots generated: {len(saved_plots)}")
-    print(f"Output directory: {save_dir}")
-    print("\nFiles created:")
-    for p in saved_plots:
-        print(f"  - {os.path.basename(p)}")
-    
+    print(f"\nStandard plots generated: {len(saved_plots)}")
     return saved_plots
 
 
 if __name__ == "__main__":
-    main()
+    # Test execution
+    print("Running standalone test...")
+    # Add parent paths if running directly
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    final_state, log, reason = run_simulation(verbose=True)
+    generate_all_plots(log, final_state, 'plots/standard')

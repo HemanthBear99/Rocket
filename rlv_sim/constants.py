@@ -120,16 +120,10 @@ GRAVITY_TURN_TRANSITION_RANGE = 4000.0  # m
 MIN_VELOCITY_FOR_TURN = 50.0  # m/s
 
 # Pitchover Maneuver (Deterministic Azimuth)
-PITCHOVER_START_ALTITUDE = 100.0   # Start earlier
-PITCHOVER_END_ALTITUDE = 1000.0    # Original duration
-PITCHOVER_ANGLE = 2.0 * np.pi / 180.0  # 2 degrees (Sufficient with correct gains)
-PITCHOVER_AZIMUTH = 90.0 * np.pi / 180.0 # East
-
-# =============================================================================
-# GUIDANCE PARAMETERS (Table 6) - Altitude-based gravity turn
-# =============================================================================
-
-MIN_VELOCITY_FOR_TURN = 150.0  # m/s - minimum velocity before starting turn
+PITCHOVER_START_ALTITUDE = 100.0   # Altitude to start pitch kick (m)
+PITCHOVER_END_ALTITUDE = 1000.0    # Altitude to end pitch kick (m)
+PITCHOVER_ANGLE = 2.0 * np.pi / 180.0  # 2 degrees kick
+PITCHOVER_AZIMUTH = 90.0 * np.pi / 180.0 # East (inertial +Y)
 
 # Target pitch angle at end of Phase I (rad from vertical)
 TARGET_PITCH_ANGLE = np.radians(45.0)
@@ -143,10 +137,6 @@ DT = 0.01
 
 # Maximum simulation time (s)
 MAX_TIME = 300.0
-
-# =============================================================================
-# INITIAL CONDITIONS (A.8)
-# =============================================================================
 
 # =============================================================================
 # INITIAL CONDITIONS (A.8)
