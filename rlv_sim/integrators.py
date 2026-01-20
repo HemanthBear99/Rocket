@@ -7,6 +7,7 @@ with quaternion normalization after each step.
 
 import numpy as np
 
+from . import constants as C
 from .state import State
 from .frames import quaternion_normalize
 from .dynamics import state_derivative_vector
@@ -32,7 +33,18 @@ def rk4_step(state: State, torque: np.ndarray, dt: float,
         
     Returns:
         New state after integration
+        
+    Raises:
+        ValueError: If dt <= 0 or torque has wrong shape
     """
+    # Input validation
+    if dt <= 0:
+        raise ValueError(f"Time step dt must be positive, got {dt}")
+    if torque.shape != (3,):
+        raise ValueError(f"Torque must have shape (3,), got {torque.shape}")
+    if np.any(np.isnan(torque)):
+        raise ValueError("Torque contains NaN values")
+    
     t = state.t
     y = state.to_vector()
     
@@ -56,12 +68,10 @@ def rk4_step(state: State, torque: np.ndarray, dt: float,
     
     # Final update
     y_new = y + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
-    
     # Normalize quaternion after full step
     y_new[6:10] = quaternion_normalize(y_new[6:10])
     
     # Ensure mass doesn't go below dry mass
-    from . import constants as C
     y_new[13] = max(y_new[13], C.DRY_MASS)
     
     # Create new state
@@ -97,7 +107,6 @@ def euler_step(state: State, torque: np.ndarray, dt: float,
     y_new[6:10] = quaternion_normalize(y_new[6:10])
     
     # Ensure mass doesn't go below dry mass
-    from . import constants as C
     y_new[13] = max(y_new[13], C.DRY_MASS)
     
     return State.from_vector(y_new, t + dt)

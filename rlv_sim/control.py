@@ -11,6 +11,7 @@ This module implements the attitude control system:
 import numpy as np
 
 from . import constants as C
+from .types import ControlOutput
 from .frames import (
     direction_to_quaternion,
     quaternion_error,
@@ -140,7 +141,7 @@ def compute_control_torque(q_current: np.ndarray, omega: np.ndarray,
 
 
 def compute_control_output(q_current: np.ndarray, omega: np.ndarray,
-                          desired_direction: np.ndarray) -> dict:
+                          desired_direction: np.ndarray) -> ControlOutput:
     """
     Compute full control output for logging and analysis.
     

@@ -165,6 +165,23 @@ INITIAL_QUATERNION = np.array([np.sqrt(2)/2, 0.0, np.sqrt(2)/2, 0.0])
 INITIAL_OMEGA = np.array([0.0, 0.0, 0.0])
 
 # =============================================================================
+# ATMOSPHERE MODEL CONSTANTS (US Standard Atmosphere 1976)
+# =============================================================================
+
+# Sea level reference conditions
+ATM_T0 = 288.15            # Sea level temperature (K)
+ATM_P0 = 101325.0          # Sea level pressure (Pa)
+ATM_RHO0 = 1.225           # Sea level density (kg/m³) - alias for RHO_0
+
+# Lapse rates and layer boundaries
+ATM_LAPSE_RATE = 0.0065    # Temperature lapse rate (K/m)
+ATM_TROPOPAUSE = 11000.0   # Troposphere height (m)
+ATM_T_STRATOSPHERE = 216.65  # Stratosphere temperature (K)
+
+# Fallback values
+ATM_SPEED_OF_SOUND_FALLBACK = 340.0  # Fallback speed of sound (m/s)
+
+# =============================================================================
 # PHYSICS CONSTANTS FOR HIGH FIDELITY MODEL
 # =============================================================================
 
@@ -182,11 +199,18 @@ ISP_VAC = 311.0  # Vacuum specific impulse (s)
 # ISP (Sea Level) is defined above as 282.0
 
 # =============================================================================
-# VALIDATION TOLERANCES
+# NUMERICAL TOLERANCES
 # =============================================================================
 
+# Validation tolerances
 QUATERNION_NORM_TOL = 1e-6  # Allowable deviation from unit norm
-ENERGY_TOLERANCE = 1e-3  # Relative energy conservation tolerance
+ENERGY_TOLERANCE = 1e-3     # Relative energy conservation tolerance
+
+# General numerical tolerances
+ZERO_TOLERANCE = 1e-10      # Near-zero check for divisions/normalizations
+SMALL_VELOCITY_TOL = 1e-5   # Small velocity threshold (m/s)
+DENSITY_FLOOR = 1e-12       # Minimum density before treating as vacuum (kg/m³)
+CRASH_ALTITUDE_TOLERANCE = -1000.0  # Altitude below which we consider it a crash (m)
 
 # =============================================================================
 # PARAMETER SUMMARY (for logging)
@@ -207,3 +231,4 @@ def print_config():
     print(f"Kp: {KP_ATTITUDE:.1e}, Kd: {KD_ATTITUDE:.1e}")
     print(f"Max torque: {MAX_TORQUE:.1e} N·m")
     print("="*60)
+

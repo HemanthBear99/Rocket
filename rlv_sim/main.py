@@ -5,22 +5,32 @@ This module implements the main simulation loop with:
 - Single continuous simulation
 - Correct execution order per timestep
 - Data logging
-- Visualization
+- Logging framework for diagnostics
+
+Coordinate Frames:
+- Position/Velocity: Earth-Centered Inertial (ECI) frame
+- Attitude: Body frame aligned with vehicle axes
+- Quaternion convention: [w, x, y, z] (scalar-first)
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-from dataclasses import dataclass, field
-from typing import List, Optional
+import logging
 import time
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
+
+import numpy as np
 
 from . import constants as C
 from .state import State, create_initial_state
 from .guidance import compute_guidance_output
-from .control import compute_control_torque
+from .control import compute_control_torque, compute_control_output
 from .integrators import integrate
 from .validation import validate_state, ValidationError
 from .mass import is_propellant_exhausted
+from .types import GuidanceOutput, ControlOutput
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -103,7 +113,6 @@ def simulation_step(state: State, dt: float) -> tuple:
     guidance = compute_guidance_output(state.r, state.v, state.t, state.m)
     
     # Step 2-3: Attitude control
-    from .control import compute_control_output
     control = compute_control_output(
         state.q, state.omega, guidance['thrust_direction']
     )
@@ -141,6 +150,10 @@ def run_simulation(dt: float = None, max_time: float = None,
     state = create_initial_state()
     log = SimulationLog()
     
+    # Log startup info
+    logger.info(f"Starting simulation: dt={dt}s, max_time={max_time}s")
+    logger.debug(f"Initial state: {state}")
+    
     if verbose:
         print("=" * 60)
         print("RLV Phase-I Ascent Simulation")
@@ -159,6 +172,7 @@ def run_simulation(dt: float = None, max_time: float = None,
         # Check termination
         terminate, reason = check_termination(state)
         if terminate:
+            logger.info(f"Simulation terminated: {reason}")
             if verbose:
                 print(f"\nTermination: {reason}")
             break
@@ -167,6 +181,7 @@ def run_simulation(dt: float = None, max_time: float = None,
         try:
             validate_state(state)
         except ValidationError as e:
+            logger.error(f"Validation failed: {e}")
             if verbose:
                 print(f"\nValidation Error: {e}")
             reason = f"Validation failure: {e}"
@@ -189,6 +204,10 @@ def run_simulation(dt: float = None, max_time: float = None,
     
     elapsed = time.time() - start_time
     
+    # Log final results
+    logger.info(f"Simulation complete: {step_count} steps in {elapsed:.2f}s")
+    logger.info(f"Final state: alt={state.altitude/1000:.2f}km, v={state.speed:.1f}m/s")
+    
     if verbose:
         print("-" * 60)
         print(f"Final state: {state}")
@@ -200,131 +219,5 @@ def run_simulation(dt: float = None, max_time: float = None,
     return state, log, reason
 
 
-def plot_results(log: SimulationLog, save_path: Optional[str] = None):
-    """
-    Generate standard plots of simulation results.
-    
-    Args:
-        log: Simulation log data
-        save_path: Optional path to save figure
-    """
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-    fig.suptitle('RLV Phase-I Ascent Simulation Results', fontsize=14)
-    
-    # Altitude vs Time
-    ax = axes[0, 0]
-    ax.plot(log.time, log.altitude, 'b-')
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Altitude (km)')
-    ax.set_title('Altitude Profile')
-    ax.grid(True, alpha=0.3)
-    
-    # Velocity vs Time
-    ax = axes[0, 1]
-    ax.plot(log.time, log.velocity, 'r-')
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Velocity (m/s)')
-    ax.set_title('Velocity Profile')
-    ax.grid(True, alpha=0.3)
-    
-    # Mass vs Time
-    ax = axes[0, 2]
-    ax.plot(log.time, log.mass, 'g-')
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Mass (kg)')
-    ax.set_title('Mass Profile')
-    ax.grid(True, alpha=0.3)
-    
-    # Pitch Angle vs Time
-    ax = axes[1, 0]
-    ax.plot(log.time, log.pitch_angle, 'm-')
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Pitch Angle (deg)')
-    ax.set_title('Guidance Pitch Angle')
-    ax.grid(True, alpha=0.3)
-    
-    # Attitude Error vs Time
-    ax = axes[1, 1]
-    ax.plot(log.time, log.attitude_error, 'c-')
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Attitude Error (deg)')
-    ax.set_title('Attitude Tracking Error')
-    ax.grid(True, alpha=0.3)
-    
-    # Quaternion Norm vs Time (validation)
-    ax = axes[1, 2]
-    ax.plot(log.time, log.quaternion_norm, 'k-')
-    ax.axhline(y=1.0, color='r', linestyle='--', alpha=0.5)
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Quaternion Norm')
-    ax.set_title('Quaternion Norm (should = 1.0)')
-    ax.set_ylim([0.999, 1.001])
-    ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150)
-        print(f"Figure saved to: {save_path}")
-    
-    plt.show()
+    return state, log, reason
 
-
-def plot_trajectory_3d(log: SimulationLog, save_path: Optional[str] = None):
-    """
-    Plot 3D trajectory.
-    
-    Args:
-        log: Simulation log data
-        save_path: Optional path to save figure
-    """
-    fig = plt.figure(figsize=(10, 10))
-    ax = fig.add_subplot(111, projection='3d')
-    
-    # Convert to km
-    x = np.array(log.position_x) / 1000
-    y = np.array(log.position_y) / 1000
-    z = np.array(log.position_z) / 1000
-    
-    # Plot trajectory
-    ax.plot(x, y, z, 'b-', linewidth=1)
-    ax.scatter(x[0], y[0], z[0], c='g', s=100, marker='o', label='Start')
-    ax.scatter(x[-1], y[-1], z[-1], c='r', s=100, marker='x', label='End')
-    
-    # Plot Earth sphere (simplified)
-    u = np.linspace(0, 2 * np.pi, 50)
-    v = np.linspace(0, np.pi, 50)
-    R = C.R_EARTH / 1000
-    xe = R * np.outer(np.cos(u), np.sin(v))
-    ye = R * np.outer(np.sin(u), np.sin(v))
-    ze = R * np.outer(np.ones(np.size(u)), np.cos(v))
-    ax.plot_surface(xe, ye, ze, alpha=0.3, color='blue')
-    
-    ax.set_xlabel('X (km)')
-    ax.set_ylabel('Y (km)')
-    ax.set_zlabel('Z (km)')
-    ax.set_title('3D Trajectory')
-    ax.legend()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150)
-        print(f"Figure saved to: {save_path}")
-    
-    plt.show()
-
-
-def main():
-    """Main entry point."""
-    # Run simulation
-    final_state, log, reason = run_simulation(verbose=True)
-    
-    # Plot results
-    if len(log.time) > 0:
-        plot_results(log)
-        plot_trajectory_3d(log)
-    
-    return final_state, log, reason
-
-
-if __name__ == "__main__":
-    main()

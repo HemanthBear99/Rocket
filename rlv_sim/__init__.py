@@ -19,7 +19,7 @@ Modules:
 """
 
 from .state import State, create_initial_state
-from .main import run_simulation, plot_results, plot_trajectory_3d
+from .main import run_simulation
 
 __version__ = "1.0.0"
 __author__ = "RLV Simulation Team"
@@ -28,6 +28,4 @@ __all__ = [
     'State',
     'create_initial_state',
     'run_simulation',
-    'plot_results',
-    'plot_trajectory_3d'
 ]

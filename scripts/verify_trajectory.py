@@ -1,10 +1,8 @@
+"""
+RLV Phase-I Ascent Simulation - Trajectory Verification Script
+"""
 
 import numpy as np
-import sys
-import os
-
-# Add parent to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from rlv_sim import run_simulation, constants as C
 

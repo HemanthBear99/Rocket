@@ -12,6 +12,8 @@ Output: desired thrust direction (inertial frame)
 import numpy as np
 
 from . import constants as C
+from .types import GuidanceOutput
+from .utils import compute_relative_velocity
 
 
 def compute_local_vertical(r: np.ndarray) -> np.ndarray:
@@ -26,7 +28,7 @@ def compute_local_vertical(r: np.ndarray) -> np.ndarray:
         Unit vector pointing radially outward
     """
     r_norm = np.linalg.norm(r)
-    if r_norm < 1e-10:
+    if r_norm < C.ZERO_TOLERANCE:
         return np.array([1.0, 0.0, 0.0])
     return r / r_norm
 
@@ -47,15 +49,13 @@ def compute_local_horizontal(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     """
     vertical = compute_local_vertical(r)
     
-    # Compute Air-Relative Velocity (v_wind)
-    omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
-    v_wind = np.cross(omega_earth, r)
-    v_rel = v - v_wind
+    # Compute Air-Relative Velocity using utility function
+    v_rel = compute_relative_velocity(r, v)
     
     v_norm = np.linalg.norm(v_rel)
     
     # PDF 8.2.2: Fallback to radial if velocity is zero
-    if v_norm < 1e-10:
+    if v_norm < C.ZERO_TOLERANCE:
         return vertical
     
     # Use velocity direction for gravity turn
@@ -115,9 +115,7 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray,
     altitude = np.linalg.norm(r) - C.R_EARTH
     
     # Use relative velocity magnitude for checks
-    omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
-    v_wind = np.cross(omega_earth, r)
-    v_rel = v - v_wind
+    v_rel = compute_relative_velocity(r, v)
     velocity = np.linalg.norm(v_rel)
     
     # Get local reference frame
@@ -156,7 +154,7 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray,
 
 
 def compute_guidance_output(r: np.ndarray, v: np.ndarray, 
-                           t: float, m: float) -> dict:
+                           t: float, m: float) -> GuidanceOutput:
     """
     Compute full guidance output for logging and control.
     
@@ -177,10 +175,8 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray,
     thrust_dir = compute_desired_thrust_direction(r, v, t)
     
     # Compute blend parameter for logging
-    # Recalculate velocity relative for blend alpha
-    omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
-    v_wind = np.cross(omega_earth, r)
-    v_rel = v - v_wind
+    # Use relative velocity for blend alpha
+    v_rel = compute_relative_velocity(r, v)
     v_rel_norm = np.linalg.norm(v_rel)
     
     alpha = compute_blend_parameter(altitude, v_rel_norm)

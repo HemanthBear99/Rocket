@@ -7,12 +7,23 @@ This module implements the equations of motion:
 - Quaternion kinematics: q̇ = 0.5 * Ω(ω) * q
 """
 
+from typing import NamedTuple
+
 import numpy as np
 
 from . import constants as C
 from .frames import quaternion_derivative, quaternion_normalize
 from .forces import compute_total_force
 from .mass import compute_mass_derivative
+
+
+class StateDerivative(NamedTuple):
+    """Container for state derivatives."""
+    r_dot: np.ndarray
+    v_dot: np.ndarray
+    q_dot: np.ndarray
+    omega_dot: np.ndarray
+    m_dot: float
 
 
 def compute_angular_acceleration(omega: np.ndarray, torque: np.ndarray) -> np.ndarray:
@@ -62,7 +73,7 @@ def compute_linear_acceleration(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     """
     F_total = compute_total_force(r, v, q, m, thrust_on)
     
-    if m < 1e-10:
+    if m < C.ZERO_TOLERANCE:
         return np.zeros(3)
     
     return F_total / m
@@ -70,7 +81,7 @@ def compute_linear_acceleration(r: np.ndarray, v: np.ndarray, q: np.ndarray,
 
 def compute_state_derivative(r: np.ndarray, v: np.ndarray, q: np.ndarray,
                              omega: np.ndarray, m: float, torque: np.ndarray,
-                             thrust_on: bool = True) -> dict:
+                             thrust_on: bool = True) -> StateDerivative:
     """
     Compute all state derivatives for the full dynamics.
     
@@ -91,7 +102,7 @@ def compute_state_derivative(r: np.ndarray, v: np.ndarray, q: np.ndarray,
         thrust_on: Whether thrust is active
         
     Returns:
-        Dictionary of state derivatives
+        StateDerivative NamedTuple
     """
     # Position derivative = velocity
     r_dot = v
@@ -108,13 +119,13 @@ def compute_state_derivative(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     # Mass derivative
     m_dot = compute_mass_derivative(m, thrust_on)
     
-    return {
-        'r_dot': r_dot,
-        'v_dot': v_dot,
-        'q_dot': q_dot,
-        'omega_dot': omega_dot,
-        'm_dot': m_dot
-    }
+    return StateDerivative(
+        r_dot=r_dot,
+        v_dot=v_dot,
+        q_dot=q_dot,
+        omega_dot=omega_dot,
+        m_dot=m_dot
+    )
 
 
 def state_derivative_vector(state_vec: np.ndarray, t: float, 
@@ -151,9 +162,9 @@ def state_derivative_vector(state_vec: np.ndarray, t: float,
     
     # Pack into vector
     return np.concatenate([
-        derivs['r_dot'],
-        derivs['v_dot'],
-        derivs['q_dot'],
-        derivs['omega_dot'],
-        [derivs['m_dot']]
+        derivs.r_dot,
+        derivs.v_dot,
+        derivs.q_dot,
+        derivs.omega_dot,
+        [derivs.m_dot]
     ])

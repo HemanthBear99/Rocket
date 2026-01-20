@@ -1,11 +1,8 @@
+"""Tests for guidance logic including pitchover and gravity turn."""
 
 import unittest
-import numpy as np
-import sys
-import os
 
-# Add parent to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import numpy as np
 
 from rlv_sim import guidance
 from rlv_sim import constants as C

@@ -10,6 +10,8 @@ Quaternion Convention: [w, x, y, z] where w is the scalar component.
 import numpy as np
 from typing import Tuple
 
+from . import constants as C
+
 
 def quaternion_normalize(q: np.ndarray) -> np.ndarray:
     """
@@ -22,7 +24,7 @@ def quaternion_normalize(q: np.ndarray) -> np.ndarray:
         Normalized quaternion
     """
     norm = np.linalg.norm(q)
-    if norm < 1e-10:
+    if norm < C.ZERO_TOLERANCE:
         # Return identity quaternion if input is degenerate
         return np.array([1.0, 0.0, 0.0, 0.0])
     return q / norm
@@ -76,7 +78,7 @@ def quaternion_inverse(q: np.ndarray) -> np.ndarray:
     """
     conj = quaternion_conjugate(q)
     norm_sq = np.dot(q, q)
-    if norm_sq < 1e-10:
+    if norm_sq < C.ZERO_TOLERANCE:
         return np.array([1.0, 0.0, 0.0, 0.0])
     return conj / norm_sq
 
@@ -234,17 +236,21 @@ def rotate_vector_inverse(v: np.ndarray, q: np.ndarray) -> np.ndarray:
 
 
 def direction_to_quaternion(direction: np.ndarray, 
-                            reference: np.ndarray = np.array([0, 0, 1])) -> np.ndarray:
+                            reference: np.ndarray = None) -> np.ndarray:
     """
     Compute a quaternion that rotates the reference direction to the target direction.
     
     Args:
         direction: Target direction (will be normalized)
-        reference: Reference direction in body frame (default: +Z)
+        reference: Reference direction in body frame (default: +Z = [0, 0, 1])
         
     Returns:
         Quaternion [w, x, y, z]
     """
+    # Use default reference if not provided (avoid mutable default argument)
+    if reference is None:
+        reference = np.array([0.0, 0.0, 1.0])
+    
     # Normalize inputs
     d = direction / np.linalg.norm(direction)
     r = reference / np.linalg.norm(reference)
@@ -321,7 +327,7 @@ def quaternion_to_axis_angle(q: np.ndarray) -> Tuple[np.ndarray, float]:
     angle = 2.0 * np.arccos(w)
     
     sin_half = np.sqrt(1.0 - w*w)
-    if sin_half < 1e-10:
+    if sin_half < C.ZERO_TOLERANCE:
         # Small angle, axis is arbitrary
         return np.array([0.0, 0.0, 1.0]), 0.0
     

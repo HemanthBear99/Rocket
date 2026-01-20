@@ -11,6 +11,8 @@ import numpy as np
 
 from . import constants as C
 from .frames import quaternion_to_rotation_matrix
+from .utils import compute_relative_velocity
+from .types import ForceBreakdown
 
 
 # =============================================================================
@@ -29,12 +31,12 @@ def compute_atmosphere_properties(altitude: float) -> tuple:
         (temperature, pressure, density, speed_of_sound)
         T in K, P in Pa, rho in kg/m^3, a in m/s
     """
-    # Constants
-    T0 = 288.15     # Sea level temperature (K)
-    P0 = 101325.0   # Sea level pressure (Pa)
-    L = 0.0065      # Temperature lapse rate (K/m)
-    H_TROPO = 11000.0 # Troposphere height (m)
-    T_STRATO = 216.65 # Stratosphere temperature (K)
+    # Use named constants from constants module
+    T0 = C.ATM_T0
+    P0 = C.ATM_P0
+    L = C.ATM_LAPSE_RATE
+    H_TROPO = C.ATM_TROPOPAUSE
+    T_STRATO = C.ATM_T_STRATOSPHERE
     G = C.G0
     
     if altitude < 0:
@@ -57,13 +59,13 @@ def compute_atmosphere_properties(altitude: float) -> tuple:
     else:
         # Upper atmosphere blend/decay (simplified)
         # Continue isothermal decay but clamp density to zero eventually
-        T = 216.65
-        # Recalculate based on 11km reference
-        T11 = 216.65
-        P11 = 22632.0 # approx pressure at 11km
+        T = T_STRATO
+        # Compute P11 from base constants (avoid magic number)
+        T11 = T0 - L * H_TROPO  # Temperature at tropopause
+        P11 = P0 * (T11 / T0) ** (G / (L * C.R_GAS))  # Pressure at tropopause (~22632 Pa)
         P = P11 * np.exp(-(G * (altitude - H_TROPO)) / (C.R_GAS * T))
         if altitude > 80000:
-            P *= np.exp(-(altitude - 80000)/5000) # Faster decay
+            P *= np.exp(-(altitude - 80000)/5000)  # Faster decay
             if altitude > 120000:
                 P = 0.0
                 
@@ -74,7 +76,7 @@ def compute_atmosphere_properties(altitude: float) -> tuple:
         speed_of_sound = np.sqrt(C.GAMMA * C.R_GAS * T)
     else:
         rho = 0.0
-        speed_of_sound = 340.0 # Fallback
+        speed_of_sound = C.ATM_SPEED_OF_SOUND_FALLBACK
         
     return T, P, rho, speed_of_sound
 
@@ -93,7 +95,7 @@ def compute_gravity_force(r: np.ndarray, m: float) -> np.ndarray:
     F_grav = -μ * m * r / ||r||³
     """
     r_norm = np.linalg.norm(r)
-    if r_norm < 1e-10:
+    if r_norm < C.ZERO_TOLERANCE:
         return np.zeros(3)
     
     return -C.MU_EARTH * m * r / (r_norm ** 3)
@@ -112,30 +114,15 @@ def compute_drag_force(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     # Get atmospheric properties
     _, _, rho, speed_of_sound = compute_atmosphere_properties(altitude)
     
-    if rho < 1e-12:
+    if rho < C.DENSITY_FLOOR:
         return np.zeros(3)
         
     # Relative velocity (accounting for Earth rotation)
-    # v_rel = v_inertial - (omega_earth x r)
-    omega_vec = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE]) # Earth rotates about Z? 
-    # WAIT: r is Inertial. I-Frame is ECI.
-    # Developer_Implementation.pdf says I-frame is Earth-Centered.
-    # Usually ECI is non-rotating.
-    # Air mass rotates with Earth.
-    # v_air = omega x r
-    # But usually omega is about Z axis [0,0,1].
-    # Developer text implies Z is thrust axis? No, that's BODY frame.
-    # Inertial Frame: "Non-rotating, Earth-centered".
-    
-    # Let's assume Standard ECI: Z is North, X is Vernal Equinox.
-    # Earth rotates about Z.
-    omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
-    v_wind = np.cross(omega_earth, r)
-    
-    v_rel = v - v_wind
+    # In ECI frame, air co-rotates with Earth: v_air = omega × r
+    v_rel = compute_relative_velocity(r, v)
     v_rel_norm = np.linalg.norm(v_rel)
     
-    if v_rel_norm < 1e-5:
+    if v_rel_norm < C.SMALL_VELOCITY_TOL:
         return np.zeros(3)
         
     # Mach Number
@@ -171,8 +158,8 @@ def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True) -
     altitude = np.linalg.norm(r) - C.R_EARTH
     _, P_amb, _, _ = compute_atmosphere_properties(altitude)
     
-    # Sea Level Pressure
-    P0 = 101325.0
+    # Sea Level Pressure (use named constant)
+    P0 = C.ATM_P0
     
     # Calculate Thrust Magnitude
     # F = mdot * ve + (Pe - Pa) * Ae
@@ -217,7 +204,7 @@ def compute_total_force(r: np.ndarray, v: np.ndarray, q: np.ndarray,
 
 
 def compute_specific_forces(r: np.ndarray, v: np.ndarray, q: np.ndarray,
-                            m: float, thrust_on: bool = True) -> dict:
+                            m: float, thrust_on: bool = True) -> ForceBreakdown:
     """
     Compute all forces and return as a dictionary for logging/analysis.
     """
