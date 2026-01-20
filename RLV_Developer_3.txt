@@ -1,0 +1,3952 @@
+
+
+--- PAGE 1 ---
+
+Reusable Launch Vehicle Simulation
+Mathematical Foundations for Developers
+1 Scope of This Document
+This document establishes the mathematical language, symbols, and conventions used throughout
+the Reusable Launch Vehicle (RLV) simulation.
+It is written for software developers and therefore defines all objects explicitly, even when they
+may appear standard in physics or engineering texts.
+No knowledge of aerospace engineering is assumed.
+2 Scalar, Vector, and Matrix Quantities
+Physical quantities in this simulation are classified into three categories: scalars, vectors, and
+matrices.
+2.1 Scalars
+A scalar is a single real number. Scalars are written in italic lowercase form, for example:
+m, t, ρ
+Scalars may vary with time. Time dependence is implied unless explicitly stated otherwise.
+2.2 Vectors
+A vector is an ordered collection of real numbers representing a quantity with magnitude and
+direction.
+Vectors are written in bold lowercase notation:
+v∈R3
+1
+
+--- PAGE 2 ---
+
+A three-dimensional vector is written explicitly as:
+v=
+vx
+vy
+vz
+
+2.3 Vector Norm
+The magnitude (Euclidean norm) of a vector is defined as:
+∥v∥=q
+v2x+v2y+v2z
+2.4 Unit Vectors
+A unit vector has magnitude one. The unit vector in the direction ofvis:
+ˆv=v
+∥v∥
+Unit vectors are undefined whenv=0and must be handled carefully in code.
+2.5 Matrices
+Matrices are written in bold uppercase notation:
+R∈R3×3
+Matrix multiplication follows standard linear algebra rules and is not commutative.
+3 Time Derivatives
+Time derivatives describe how quantities evolve with respect to time.
+3.1 First Derivative
+The first derivative of a quantityx(t) with respect to time is written as:
+˙x=dx
+dt
+3.2 Second Derivative
+The second derivative is written as:
+¨x=d2x
+dt2
+In physical terms:
+2
+
+--- PAGE 3 ---
+
+•Position→velocity→acceleration
+4 Coordinate Frames (Conceptual)
+All vector quantities exist relative to a coordinate frame.
+Two frames are used in the simulation:
+•An inertial frame (fixed in space)
+•A body-fixed frame (attached to the vehicle)
+The transformation between these frames is handled mathematically using rotation operators
+defined later.
+5 Cross Product
+The cross product of two vectorsa,b∈R3is defined as:
+a×b=
+aybz−azby
+azbx−axbz
+axby−aybx
+
+5.1 Skew-Symmetric Matrix Representation
+The cross product can be represented as a matrix operation:
+a×b= [a] ×b
+where:
+[a]×=
+0−a zay
+az 0−a x
+−ayax 0
+
+This representation is essential for rotational dynamics and will be used extensively later.
+6 Numerical Precision and Stability
+All computations are assumed to be performed using floating-point arithmetic.
+Due to numerical error:
+•Vector norms may drift
+•Orthogonality may degrade
+3
+
+--- PAGE 4 ---
+
+Where constraints exist (e.g., unit magnitude), explicit normalization must be performed in
+code.
+7 Developer Responsibility
+The developer is responsible for:
+•Preserving mathematical definitions exactly
+•Avoiding implicit assumptions
+•Implementing safeguards against division by zero
+All later equations assume strict compliance with the conventions defined here.
+8 Quaternion Mathematics for Rigid-Body Orientation
+This section introduces quaternions as a mathematical tool for representing three-dimensional ori-
+entation and rotation.
+The treatment is deliberately detailed and assumes no prior exposure to quaternions, rigid-body
+mechanics, or aerospace engineering. All definitions are explicit, and no steps are omitted.
+Quaternions are used exclusively to representorientation. They do not represent position,
+velocity, force, or torque.
+8.1 Motivation for Using Quaternions
+In three-dimensional space, a rigid body may rotate about arbitrary axes. Describing such rotations
+using angle-based representations (such as yaw, pitch, and roll) leads to mathematical singularities
+and numerical instability.
+These singularities arise because angle-based representations cannot uniquely describe all pos-
+sible orientations.
+Quaternions avoid these issues by representing orientation as a point on a four-dimensional unit
+sphere. This representation is smooth, continuous, and well-suited for numerical integration.
+For these reasons, quaternions are used throughout this simulation.
+8.2 Definition of a Quaternion
+A quaternion is defined as a four-dimensional real-valued vector:
+q=
+q0
+q1
+q2
+q3
+∈R4
+4
+
+--- PAGE 5 ---
+
+The components are interpreted as follows:
+•q0: scalar (real) component
+•q1, q2, q3: vector (imaginary) components
+For compact notation, the quaternion may also be written as:
+q="
+q0
+qv#
+whereq v=
+q1
+q2
+q3
+
+8.3 Unit Quaternion Constraint
+Onlyunit quaternionsare used to represent physical orientation.
+The magnitude (norm) of a quaternion is defined as:
+∥q∥=q
+q2
+0+q2
+1+q2
+2+q2
+3
+For a unit quaternion:
+∥q∥= 1
+This constraint must be enforced numerically. Due to floating-point error, numerical integration
+will generally cause small deviations from unit magnitude. Therefore, explicit renormalization is
+required after each integration step.
+Failure to enforce this constraint results in invalid rotations.
+8.4 Quaternion Conjugate
+The conjugate of a quaternion is defined by negating its vector part while preserving its scalar part:
+q∗=
+q0
+−q1
+−q2
+−q3
+
+The conjugate operation plays a role analogous to complex conjugation and is used in inverse
+rotation and frame transformations.
+8.5 Quaternion Inverse
+The inverse of a nonzero quaternion is defined as:
+q−1=q∗
+∥q∥2
+5
+
+--- PAGE 6 ---
+
+For unit quaternions, this simplifies to:
+q−1=q∗
+This property is critical in practical implementations, as it allows inversion to be performed
+without division.
+8.6 Quaternion Multiplication
+Quaternion multiplication defines how rotations are composed.
+Given two quaternions:
+p="
+p0
+pv#
+,q="
+q0
+qv#
+their product is defined as:
+p⊗q="
+p0q0−pv·qv
+p0qv+q0pv+pv×qv#
+Important properties:
+•Quaternion multiplication isnot commutative
+•Order of multiplication matters
+•Multiplication corresponds to rotation composition
+8.7 Quaternion Representation of a Rotation
+A unit quaternion can represent a rotation of angleθabout a unit axis ˆu.
+The quaternion corresponding to this rotation is:
+q="
+cos(θ/2)
+ˆusin(θ/2)#
+This representation is exact and arises from the geometry of rotations in three-dimensional
+space.
+8.8 Rotating a Vector Using a Quaternion
+To rotate a vectorv∈R3using a quaternion, the vector is first embedded into apure quaternion:
+vq="
+0
+v#
+6
+
+--- PAGE 7 ---
+
+The rotated vector is obtained via:
+v′
+q=q⊗v q⊗q−1
+The rotated vectorv′is extracted as the vector part ofv′
+q.
+This operation preserves vector magnitude and performs a proper three-dimensional rotation.
+9 Rotation Matrices and Frame Transformations
+This section establishes the mathematical relationship between quaternions and rotation matrices
+and explains how vectors are transformed between coordinate frames.
+Rotation matrices are used forvector transformation only. They are never integrated directly
+in time. All orientation integration is performed using quaternions.
+9.1 Rotation Matrix Definition
+A rotation matrix is a real-valued 3×3 matrix:
+R∈R3×3
+that maps vectors from one coordinate frame to another through a rigid-body rotation.
+For a valid rotation matrix, the following properties must hold:
+1. Orthogonality:
+RTR=I
+2. Unit determinant:
+det(R) = +1
+These properties ensure that rotation matrices preserve vector length and angles.
+9.2 Why Rotation Matrices Are Not Integrated
+Although rotation matrices can represent orientation, they are not numerically stable when inte-
+grated directly.
+Numerical integration causes:
+•Loss of orthogonality
+•Drift in determinant
+•Accumulation of numerical error
+For this reason:
+7
+
+--- PAGE 8 ---
+
+•Orientation is propagated using quaternions
+•Rotation matrices are computed algebraically from quaternions
+This separation ensures numerical stability.
+9.3 Quaternion to Rotation Matrix Conversion
+Given a unit quaternion:
+q=
+q0
+q1
+q2
+q3
+
+the corresponding rotation matrix is defined as:
+R(q) =
+1−2(q2
+2+q2
+3) 2(q 1q2−q0q3) 2(q 1q3+q0q2)
+2(q1q2+q0q3) 1−2(q2
+1+q2
+3) 2(q 2q3−q0q1)
+2(q1q3−q0q2) 2(q 2q3+q0q1) 1−2(q2
+1+q2
+2)
+
+This matrix is guaranteed to be orthogonal ifqis a unit quaternion.
+9.4 Frame Transformation Convention
+Throughout this simulation, the rotation matrixRis defined to transform vectors from thebody-
+fixed frameto theinertial frame.
+That is, for a vector expressed in the body framev b:
+vi=R(q)v b
+Conversely, the inverse transformation is:
+vb=RT(q)v i
+This convention must be used consistently throughout the codebase.
+9.5 Physical Interpretation
+The columns ofRrepresent the body-frame basis vectors expressed in the inertial frame.
+Specifically:
+•Column 1: bodyx-axis in inertial coordinates
+•Column 2: bodyy-axis in inertial coordinates
+8
+
+--- PAGE 9 ---
+
+•Column 3: bodyz-axis in inertial coordinates
+This interpretation is essential when applying forces defined in the body frame.
+9.6 Transformation of Forces
+Forces generated by the vehicle (e.g., thrust) are defined in the body frame.
+To apply these forces in the equations of motion, they must be transformed into the inertial
+frame:
+Fi=R(q)F b
+This transformation preserves force magnitude and direction relative to the vehicle orientation.
+9.7 Transformation of Angular Quantities
+Angular velocity vectors are expressed in the body frame unless explicitly stated otherwise.
+No transformation of angular velocity is required during quaternion propagation, as the quater-
+nion kinematic equation is formulated in the body frame.
+9.8 Implementation Notes for Developers
+The following rules must be followed strictly:
+•Never integrateRdirectly
+•Always recomputeRfrom the normalized quaternion
+•Always normalize the quaternion before computingR
+•UseRonly for vector transformations
+Violating these rules will result in numerically unstable orientation behavior.
+10 Quaternion Kinematics and Time Integration
+This section defines how a quaternion evolves in time as a function of angular velocity. This
+relationship is purely kinematic and does not depend on forces, torques, or vehicle properties.
+Correct implementation of this section is critical. Errors here will corrupt all subsequent dy-
+namics, even if force models are correct.
+9
+
+--- PAGE 10 ---
+
+10.1 Angular Velocity Definition
+Angular velocity describes how fast a rigid body rotates and about which axis.
+In this simulation, angular velocity is defined as:
+ω=
+ωx
+ωy
+ωz
+
+whereωis expressed in thebody-fixed frame.
+Each component represents the instantaneous rate of rotation about the corresponding body
+axis, measured in radians per second.
+10.2 Quaternion Time Derivative
+The time derivative of a quaternion is linearly related to angular velocity.
+Let the quaternion be written as:
+q="
+q0
+qv#
+whereq 0is the scalar component andq vis the vector component.
+The quaternion time derivative is given by:
+˙q=1
+2"
+0−ωT
+ω−[ω] ×#
+q
+where [ω] ×is the skew-symmetric matrix defined previously.
+This equation is exact and contains no approximations.
+10.3 Expanded Component Form
+For implementation clarity, the quaternion derivative may be written explicitly in component form:
+˙q0=−1
+2(q1ωx+q2ωy+q3ωz)
+˙q1=1
+2(q0ωx+q2ωz−q3ωy)
+˙q2=1
+2(q0ωy+q3ωx−q1ωz)
+˙q3=1
+2(q0ωz+q1ωy−q2ωx)
+10
+
+--- PAGE 11 ---
+
+These four equations must be implemented exactly as written.
+10.4 Interpretation of the Kinematic Equation
+The quaternion derivative equation expresses how orientation changes due to instantaneous angular
+velocity.
+Key observations:
+•The quaternion derivative is linear in angular velocity
+•The scalar and vector components are coupled
+•No trigonometric functions appear
+This structure makes quaternion propagation numerically efficient and stable.
+10.5 Numerical Integration of the Quaternion
+The quaternion derivative equation must be integrated numerically over time.
+Any standard numerical integration method may be used, including:
+•Explicit Euler (not recommended for production)
+•Runge–Kutta methods (recommended)
+Let ∆tdenote the integration time step.
+After each integration step:
+qraw→q normalized =qraw
+∥qraw∥
+This normalization step is mandatory.
+10.6 Why Normalization Is Required
+The quaternion kinematic equation preserves unit magnitude only in exact arithmetic.
+In floating-point arithmetic:
+•Truncation error accumulates
+•The unit constraint is violated over time
+Normalization restores the physical meaning of the quaternion as a pure rotation operator.
+Skipping normalization will result in:
+•Non-orthogonal rotation matrices
+•Artificial scaling of vectors
+•Unphysical orientation behavior
+11
+
+--- PAGE 12 ---
+
+10.7 Relationship to Rotation Matrices
+At any time, after normalization, the quaternion may be converted into a rotation matrix using
+the expressions defined in the previous section.
+The sequence must always be:
+1. Integrate quaternion
+2. Normalize quaternion
+3. Compute rotation matrix
+Any other ordering is incorrect.
+10.8 Common Implementation Errors
+The following errors must be explicitly avoided:
+•Using angular velocity in the inertial frame instead of the body frame
+•Omitting the factor of1
+2
+•Forgetting quaternion normalization
+•Integrating rotation matrices directly
+Each of these errors leads to incorrect orientation evolution.
+10.9 Developer Checklist
+Before proceeding to dynamics, verify:
+•Quaternion norm remains equal to one within numerical tolerance
+•Pure rotations preserve vector magnitude
+•Zero angular velocity produces constant orientation
+Only after these checks pass should rotational dynamics be introduced.
+11 Rigid-Body Rotational Dynamics
+This section introduces the equations that govern how angular velocity evolves over time due to
+applied torques.
+Unlike the previous section, which was purely kinematic, this section introducesdynamics.
+Dynamics relate motion to physical causes.
+All quantities in this section are defined explicitly, and no prior knowledge of classical mechanics
+is assumed.
+12
+
+--- PAGE 13 ---
+
+11.1 Rigid-Body Assumption
+The vehicle is modeled as a rigid body.
+This means:
+•The distance between any two points on the vehicle is constant
+•Deformation due to loads is neglected
+•Mass distribution changes only due to fuel consumption
+Under this assumption, the vehicle’s rotational behavior can be described using a finite set of
+equations.
+11.2 Angular Momentum
+Angular momentum is a vector quantity that describes the rotational state of a rigid body.
+It is defined as:
+H=Iω
+where:
+•H∈R3is the angular momentum
+•I∈R3×3is the inertia tensor
+•ω∈R3is the angular velocity (body frame)
+11.3 Inertia Tensor
+The inertia tensor characterizes how mass is distributed relative to the rotation axes.
+It is a symmetric, positive-definite matrix:
+I=
+IxxIxyIxz
+IyxIyyIyz
+IzxIzyIzz
+
+For many vehicles, the body frame is chosen such thatIis diagonal:
+I=
+Ixx 0 0
+0I yy 0
+0 0I zz
+
+This simplification is valid only if the body axes align with the principal axes of inertia.
+13
+
+--- PAGE 14 ---
+
+11.4 Torque Definition
+Torque is the rotational analog of force. It describes the tendency of a force to cause rotation.
+The total torque acting on the vehicle is denoted:
+τ=
+τx
+τy
+τz
+
+All torques are expressed in the body-fixed frame.
+In Phase I (Ascent), torque may arise from:
+•Thrust misalignment
+•Thrust vector control
+Aerodynamic torques are neglected at this stage.
+11.5 Euler’s Rotational Equations
+The time evolution of angular momentum is governed by:
+dH
+dt=τ
+SubstitutingH=Iωand expressing derivatives in the body frame yields Euler’s equations of
+motion:
+I˙ω+ω×(Iω) =τ
+This is the fundamental rotational dynamic equation used in the simulation.
+11.6 Solving for Angular Acceleration
+To compute angular acceleration, the equation is rearranged:
+˙ω=I−1(τ−ω×(Iω))
+This equation must be evaluated at every integration step.
+11.7 Expanded Component Form (Diagonal Inertia)
+If the inertia tensor is diagonal, the equations simplify to:
+˙ωx=1
+Ixx(τx−(I zz−Iyy)ωyωz)
+14
+
+--- PAGE 15 ---
+
+˙ωy=1
+Iyy(τy−(I xx−Izz)ωzωx)
+˙ωz=1
+Izz(τz−(I yy−Ixx)ωxωy)
+These equations must be implemented exactly when using a diagonal inertia tensor.
+11.8 Numerical Integration of Angular Velocity
+The angular acceleration ˙ωis integrated in time to update angular velocity.
+Let ∆tdenote the time step. Then:
+ω(t+ ∆t) =ω(t) + ˙ω∆t
+Higher-order integrators may be used, but the structure of the equation remains unchanged.
+11.9 Coupling with Quaternion Kinematics
+The updated angular velocity is used as input to the quaternion kinematic equation defined previ-
+ously.
+The update sequence at each time step is:
+1. Compute torqueτ
+2. Compute angular acceleration ˙ω
+3. Integrate angular velocity
+4. Integrate quaternion
+5. Normalize quaternion
+This ordering must be preserved.
+11.10 Physical Interpretation
+The cross-product termω×(Iω) represents the gyroscopic coupling between rotation axes.
+This term is responsible for:
+•Precession
+•Nutation
+•Axis coupling
+Neglecting this term results in physically incorrect rotational behavior.
+15
+
+--- PAGE 16 ---
+
+11.11 Developer Validation Checks
+Before introducing translational motion, verify:
+•Zero torque produces constant angular velocity
+•Torque about one axis affects other axes when inertia is asymmetric
+•Angular kinetic energy behaves smoothly
+Only after these checks pass should translational dynamics be introduced.
+12 Translational Kinematics and Dynamics Foundations
+This section introduces the mathematical description of translational motion. Unlike rotational
+motion, which concerns orientation, translational motion describes how the vehicle’s center of mass
+moves through space.
+As with previous sections, all definitions are explicit and no prior knowledge of classical me-
+chanics is assumed.
+12.1 Center of Mass Representation
+The vehicle is modeled as a point mass located at its instantaneous center of mass for translational
+motion.
+This does not contradict the rigid-body assumption used for rotation. The two descriptions
+coexist:
+•Translational motion: center of mass treated as a point
+•Rotational motion: mass distribution affects angular dynamics
+12.2 Position Vector
+The position of the vehicle center of mass is represented by:
+r=
+x
+y
+z
+
+This vector is expressed in the inertial reference frame and measures the displacement from the
+Earth’s center.
+16
+
+--- PAGE 17 ---
+
+12.3 Velocity Vector
+The inertial velocity of the center of mass is defined as the time derivative of position:
+v=˙r
+Velocity has both magnitude and direction and is expressed in meters per second.
+12.4 Acceleration Vector
+Acceleration is defined as the time derivative of velocity:
+a= ˙v=¨r
+Acceleration represents the instantaneous rate of change of velocity.
+12.5 Kinematic Relationships
+The kinematic relationships governing translational motion are:
+˙r=v
+˙v=a
+These equations are purely kinematic and do not describe the physical causes of motion.
+12.6 Newton’s Second Law
+Dynamics relate acceleration to physical causes through Newton’s second law.
+For translational motion:
+Ftotal=ma
+where:
+•F totalis the total external force acting on the vehicle
+•mis the instantaneous mass
+•ais the inertial acceleration
+Rearranging yields:
+a=1
+mFtotal
+17
+
+--- PAGE 18 ---
+
+12.7 Separation of Kinematics and Dynamics
+It is essential to distinguish between:
+•Kinematics: how position and velocity evolve
+•Dynamics: why acceleration occurs
+The simulation must follow this sequence:
+1. Compute total force
+2. Compute acceleration using Newton’s law
+3. Integrate velocity
+4. Integrate position
+Skipping or reordering these steps results in incorrect motion.
+12.8 Numerical Integration of Translational Motion
+Let ∆tdenote the time step.
+The velocity and position are updated numerically as:
+v(t+ ∆t) =v(t) +a(t)∆t
+r(t+ ∆t) =r(t) +v(t)∆t
+Higher-order integration schemes may be used to improve accuracy, but the structure of the
+equations remains unchanged.
+12.9 Coupling with Mass Variation
+The massmappearing in Newton’s second law is time-varying due to propellant consumption.
+The mass must be updated consistently before computing acceleration.
+Using outdated mass values introduces artificial acceleration errors.
+12.10 Developer Validation Checks
+Before introducing specific force models, verify:
+•Zero force produces constant velocity
+•Constant force produces linearly increasing velocity
+•Position changes smoothly with velocity
+Only after these conditions are satisfied should force models be introduced.
+18
+
+--- PAGE 19 ---
+
+13 Gravitational Force Modeling
+This section introduces the gravitational force acting on the vehicle during the ascent phase.
+Gravity is treated as a central force originating from the center of the Earth. This model is
+sufficient for ascent and orbital insertion and avoids unnecessary complexity.
+No approximations such as constant gravitational acceleration are used.
+13.1 Physical Interpretation of Gravity
+Gravity is the force by which the Earth attracts mass toward its center.
+In orbital mechanics, gravity is not modeled as a constant downward acceleration, but as a
+position-dependent force that always points toward the Earth’s center.
+This distinction is critical for accurately modeling high-altitude and orbital motion.
+13.2 Earth as a Central Gravitating Body
+The Earth is modeled as:
+•Spherically symmetric
+•Non-rotating (for Phase I)
+•Having all mass concentrated at its center
+Under these assumptions, the gravitational field depends only on distance from the Earth’s
+center.
+13.3 Gravitational Parameter
+The Earth’s gravitational field is characterized by the gravitational parameter:
+µ=GM E
+where:
+•Gis the universal gravitational constant
+•M Eis the mass of the Earth
+In practice,µis treated as a known constant.
+19
+
+--- PAGE 20 ---
+
+13.4 Position Vector and Radial Distance
+Let the position vector of the vehicle be:
+r=
+x
+y
+z
+
+The radial distance from the Earth’s center is:
+r=∥r∥=p
+x2+y2+z2
+This scalar quantity determines the strength of the gravitational force.
+13.5 Gravitational Force Vector
+The gravitational force acting on the vehicle is given by:
+Fgrav=−µm
+r3r
+Key properties:
+•The force magnitude decreases with increasing distance
+•The force direction always points toward the Earth’s center
+•The force is proportional to vehicle mass
+The negative sign indicates attraction.
+13.6 Gravitational Acceleration
+Dividing the gravitational force by mass yields gravitational acceleration:
+agrav=−µ
+r3r
+This acceleration is independent of vehicle mass.
+This expression replaces the constantgapproximation used in low-altitude models.
+13.7 Inclusion in Newton’s Second Law
+The total translational acceleration is computed as:
+a=1
+m(Fgrav+F other)
+whereF otherrepresents all non-gravitational forces, which will be defined in subsequent sections.
+20
+
+--- PAGE 21 ---
+
+13.8 Why Constant Gravity Is Incorrect
+Using a constant gravitational acceleration assumes:
+•Flat Earth
+•Low altitude
+•Negligible horizontal motion
+These assumptions are invalid for ascent trajectories reaching tens or hundreds of kilometers.
+Central gravity ensures physically correct behavior for:
+•Gravity turn
+•Orbital insertion
+•High-altitude coast phases
+13.9 Numerical Considerations
+To avoid numerical instability:
+•Ensurer̸= 0 at all times
+•Use double-precision arithmetic
+•Computer3carefully to avoid overflow
+13.10 Developer Validation Checks
+Before introducing other forces, verify:
+•With gravity only, trajectories are conic sections
+•With zero initial velocity, motion is purely radial
+•Gravitational acceleration magnitude decreases with altitude
+Only after these checks pass should additional force models be introduced.
+14 Thrust Force Modeling and Propulsion Dynamics
+This section defines how propulsive thrust is modeled and applied to the vehicle during the ascent
+phase.
+Thrust is the primary non-gravitational force responsible for increasing the vehicle’s energy and
+shaping its trajectory. The formulation presented here is general and does not assume any specific
+engine design.
+21
+
+--- PAGE 22 ---
+
+14.1 Physical Interpretation of Thrust
+Thrust is the reaction force generated by expelling mass at high velocity from the vehicle.
+In this simulation, thrust is modeled as a controllable force applied along a specified axis of the
+vehicle body.
+The internal details of combustion and nozzle flow are not modeled explicitly. Their net effect
+is captured through thrust magnitude and mass flow rate.
+14.2 Thrust Direction in the Body Frame
+The thrust force is defined in the body-fixed frame.
+By convention, the thrust direction is aligned with the positive bodyz-axis:
+ˆez=
+0
+0
+1
+
+This unit vector represents the nominal thrust axis of the vehicle.
+Any thrust vector control or misalignment effects modify this direction, but the baseline defi-
+nition remains unchanged.
+14.3 Thrust Magnitude
+LetT(t) denote the thrust magnitude at timet, expressed in newtons.
+The thrust magnitude may depend on:
+•Engine throttle setting
+•Engine performance limits
+•Remaining propellant
+No assumption is made here about howT(t) is commanded. It is treated as an external control
+input.
+14.4 Thrust Force Vector in the Body Frame
+The thrust force vector expressed in the body frame is:
+F(b)
+thrust=T
+0
+0
+1
+
+This expression defines thrust as a pure force with no inherent torque.
+22
+
+--- PAGE 23 ---
+
+14.5 Transformation to the Inertial Frame
+To apply thrust in the translational equations of motion, the force must be expressed in the inertial
+frame.
+Using the rotation matrix derived from the quaternion:
+F(i)
+thrust=R(q)F(b)
+thrust
+This transformation ensures that thrust direction follows vehicle orientation.
+14.6 Inclusion in Newton’s Second Law
+The total translational force acting on the vehicle is:
+Ftotal=F grav+F thrust +F other
+During initial ascent,F othermay be zero or may later include aerodynamic forces.
+14.7 Mass Flow Rate
+Propellant consumption causes the vehicle mass to decrease over time.
+The mass flow rate is related to thrust by:
+˙m=−T
+Ispg0
+where:
+•Ispis the specific impulse of the engine
+•g0is standard gravity
+The negative sign indicates decreasing mass.
+14.8 Mass Update Equation
+The vehicle mass is updated by integrating the mass flow rate:
+m(t+ ∆t) =m(t) + ˙m(t)∆t
+Mass must be updatedbeforecomputing acceleration at the next time step.
+14.9 Engine Cutoff Condition
+Thrust must be set to zero when:
+23
+
+--- PAGE 24 ---
+
+•Propellant mass reaches zero
+•A commanded engine cutoff occurs
+After cutoff:
+T= 0⇒˙m= 0
+Failure to enforce this condition results in unphysical behavior.
+14.10 Coupling Between Thrust and Rotation
+If thrust is not applied exactly through the center of mass, it generates torque:
+τthrust =rlever×F(b)
+thrust
+For Phase I, thrust is assumed to act through the center of mass unless otherwise specified.
+14.11 Numerical Stability Considerations
+To ensure numerical stability:
+•Thrust magnitude must be bounded
+•Mass must remain positive
+•Thrust must smoothly transition during cutoff
+Abrupt discontinuities may require smaller integration time steps.
+14.12 Developer Validation Checks
+Before introducing additional forces, verify:
+•With thrust only, acceleration aligns with bodyz-axis
+•Increasing thrust increases acceleration proportionally
+•Mass decreases linearly under constant thrust
+Only after these checks pass should aerodynamic forces be introduced.
+15 Aerodynamic Drag Modeling and Atmospheric Interaction
+This section introduces aerodynamic drag, the resistive force experienced by the vehicle as it moves
+through the atmosphere during ascent.
+Only drag is modeled in Phase I. Aerodynamic lift, moments, heating, and shock effects are
+intentionally excluded and will be addressed in later phases.
+24
+
+--- PAGE 25 ---
+
+15.1 Physical Interpretation of Aerodynamic Drag
+Aerodynamic drag arises from momentum exchange between the vehicle and the surrounding air.
+Drag always acts in the direction opposite to the vehicle’s velocity relative to the atmosphere
+and dissipates mechanical energy.
+At low altitude and high velocity, drag can dominate the force balance and impose structural
+and thermal constraints.
+15.2 Relative Velocity
+Aerodynamic forces depend on the velocity of the vehicle relative to the air.
+In Phase I, the atmosphere is assumed to be stationary with respect to the inertial frame.
+Therefore, the relative velocity is:
+vrel=v
+wherevis the inertial velocity of the vehicle.
+15.3 Atmospheric Density Model
+Atmospheric density decreases with altitude.
+For Phase I, an exponential atmosphere model is used:
+ρ(h) =ρ 0exp
+−h
+H
+where:
+•ρ0is sea-level density
+•His the atmospheric scale height
+•his altitude above the Earth’s surface
+Altitude is computed as:
+h=∥r∥ −R E
+whereR Eis the Earth’s mean radius.
+15.4 Drag Coefficient
+The drag coefficientC Dis a dimensionless parameter that captures the effect of vehicle shape and
+flow regime.
+In Phase I,C Dis treated as a constant:
+CD= const
+25
+
+--- PAGE 26 ---
+
+More advanced models may introduce Mach number or angle-of-attack dependence.
+15.5 Reference Area
+The reference areaAis the effective cross-sectional area exposed to the flow.
+It is defined as a scalar constant with units of square meters:
+A >0
+15.6 Dynamic Pressure
+Dynamic pressure is defined as:
+q=1
+2ρ∥vrel∥2
+Dynamic pressure is a key quantity used to identify maximum aerodynamic loading (max-Q)
+during ascent.
+15.7 Drag Force Magnitude
+The magnitude of the drag force is:
+D=qC DA
+This scalar quantity represents the total resistive force due to aerodynamic drag.
+15.8 Drag Force Vector
+The drag force vector acts opposite to the direction of relative velocity:
+Fdrag=−Dvrel
+∥vrel∥
+This formulation ensures:
+•Drag opposes motion
+•Drag magnitude scales with speed squared
+15.9 Handling Zero Velocity
+When∥v rel∥= 0, the drag force is undefined.
+In implementation:
+•SetF drag=0
+•Avoid division by zero
+This condition typically occurs only at launch initialization.
+26
+
+--- PAGE 27 ---
+
+15.10 Inclusion in Total Force
+The total force acting on the vehicle is updated to include drag:
+Ftotal=F grav+F thrust +F drag
+This completes the force model for Phase I ascent.
+15.11 Energy Dissipation Interpretation
+Drag performs negative work on the vehicle:
+Fdrag·v<0
+This represents irreversible energy loss due to heating and wake formation.
+15.12 Numerical Stability Considerations
+To maintain numerical stability:
+•Clamp density to zero at high altitude
+•Avoid evaluating drag above the atmosphere
+•Use smooth transitions for density decay
+15.13 Developer Validation Checks
+Before proceeding to guidance and phase logic, verify:
+•Drag is zero at zero velocity
+•Drag increases with velocity and density
+•Maximum dynamic pressure occurs at realistic altitude
+Only after these checks pass should ascent guidance logic be introduced.
+16 Ascent Guidance and Attitude Command Logic
+This section defines how the desired vehicle orientation is commanded during the ascent phase.
+Guidance determineswhere the vehicle should point. It does not directly apply forces or torques.
+Instead, it generates attitude commands that are tracked by the rotational dynamics defined pre-
+viously.
+The guidance logic presented here is purely geometric and physics-consistent. It does not rely
+on time-based pitch schedules or precomputed trajectories.
+27
+
+--- PAGE 28 ---
+
+16.1 Separation of Guidance and Control
+It is essential to distinguish between:
+•Guidance: determines desired orientation
+•Control: generates torques to track that orientation
+This section defines guidance only. Control laws will be introduced later.
+16.2 Ascent Phase Segmentation
+The ascent phase is divided into two guidance sub-phases:
+1. Vertical Ascent Phase
+2. Gravity Turn Phase
+Each sub-phase has distinct guidance logic and transition conditions.
+16.3 Vertical Ascent Phase
+The purpose of vertical ascent is to:
+•Clear dense atmosphere
+•Build vertical velocity safely
+•Avoid excessive aerodynamic loads
+During this phase, the vehicle is commanded to point radially outward from the Earth.
+16.3.1 Radial Unit Vector
+The radial unit vector is defined as:
+ˆr=r
+∥r∥
+This vector points directly away from the Earth’s center.
+16.3.2 Desired Thrust Direction
+During vertical ascent, the desired thrust direction in the inertial frame is:
+ˆtcmd=ˆr
+This ensures thrust is applied directly upward relative to the Earth.
+28
+
+--- PAGE 29 ---
+
+16.3.3 Phase Exit Conditions
+The vertical ascent phase ends when all of the following conditions are met:
+•Altitude exceeds a predefined thresholdh switch
+•Vehicle speed exceeds a minimum thresholdv min
+These conditions prevent premature gravity turn initiation.
+16.4 Gravity Turn Phase
+The gravity turn phase allows the vehicle to naturally bend its trajectory by aligning thrust with
+the velocity vector.
+This minimizes control effort and aerodynamic losses.
+16.4.1 Velocity Direction Unit Vector
+The unit velocity vector is defined as:
+ˆv=v
+∥v∥
+This vector indicates the instantaneous direction of motion.
+16.4.2 Desired Thrust Direction
+During the gravity turn phase, the desired thrust direction is:
+ˆtcmd=ˆv
+This aligns thrust with the trajectory tangent.
+16.4.3 Physical Interpretation
+When thrust is aligned with velocity:
+•Thrust increases speed without introducing lateral acceleration
+•Gravity naturally bends the trajectory
+•Structural and aerodynamic loads are reduced
+This behavior emerges naturally from the equations of motion.
+16.5 Transition Between Guidance Phases
+The guidance logic must smoothly transition between vertical ascent and gravity turn.
+A sharp switch in commanded direction may introduce large attitude errors.
+29
+
+--- PAGE 30 ---
+
+16.5.1 Blended Guidance Law
+A smooth transition is achieved using a blending parameterα∈[0,1]:
+ˆtcmd= (1−α) ˆr+α ˆv
+The resulting vector must be normalized:
+ˆtcmd←ˆtcmd
+∥ˆtcmd∥
+16.5.2 Blend Parameter Definition
+The blending parameter may be defined as a function of altitude:
+α= cliph−h switch
+∆h,0,1
+where:
+•∆his the transition altitude range
+•clip(·) limits the value to [0,1]
+16.6 Conversion to Desired Attitude Quaternion
+The guidance system outputs a desired thrust direction in the inertial frame.
+To generate an attitude command, the bodyz-axis must be aligned with ˆtcmd.
+This is achieved by computing a desired quaternionq cmdsuch that:
+R(q cmd)
+0
+0
+1
+=ˆtcmd
+The specific construction ofq cmdis implementation-dependent but must satisfy this constraint.
+16.7 Guidance Failure Modes
+The guidance system must handle the following edge cases:
+•Near-zero velocity magnitude
+•Large attitude errors during transition
+•Numerical noise in velocity direction
+In such cases, the system may temporarily revert to radial pointing.
+30
+
+--- PAGE 31 ---
+
+16.8 Developer Validation Checks
+Before introducing control laws, verify:
+•Thrust initially points radially outward
+•Vehicle naturally pitches over without discontinuities
+•Trajectory bends smoothly under gravity
+Only after these checks pass should attitude control be implemented.
+17 Attitude Control Law: Tracking the Guidance Command
+This section defines how control torques are generated to drive the vehicle from its current orien-
+tation to the desired orientation commanded by the guidance system.
+Control convertsdesired orientationintophysical torque. Unlike guidance, control directly
+affects the equations of motion through applied moments.
+The control law presented here is intentionally simple, robust, and sufficient for Phase I ascent.
+17.1 Control Objective
+The objective of the attitude control system is:
+•To align the vehicle bodyz-axis with the commanded thrust direction
+•To damp angular rates and prevent oscillations
+Perfect tracking is not required; bounded, stable tracking is sufficient.
+17.2 Current and Commanded Orientation
+Let:
+•qdenote the current attitude quaternion
+•qcmddenote the commanded attitude quaternion
+Both quaternions are assumed to be unit quaternions.
+17.3 Quaternion Error Definition
+The orientation error is represented using a quaternion error defined as:
+qe=qcmd⊗q−1
+This quaternion represents the rotation required to bring the vehicle from its current orientation
+to the desired orientation.
+31
+
+--- PAGE 32 ---
+
+17.4 Error Quaternion Properties
+Let:
+qe="
+qe0
+qev#
+whereq e0is the scalar component andq evis the vector component.
+For small orientation errors:
+•qe0≈1
+•qevis approximately proportional to the rotation error axis
+The vector partq evis used directly as an error signal.
+17.5 Angular Velocity Error
+The angular velocity error is defined as:
+ωe=ω−ω cmd
+In Phase I ascent, the commanded angular velocity is zero:
+ωcmd=0
+Therefore:
+ωe=ω
+17.6 Proportional–Derivative Control Law
+A proportional–derivative (PD) control law is used to compute control torque:
+τcmd=−K pqev−K dωe
+where:
+•K pis the proportional gain
+•K dis the derivative gain
+Both gains are positive scalar constants.
+17.7 Physical Interpretation of Control Terms
+The proportional term:
+−Kpqev
+32
+
+--- PAGE 33 ---
+
+acts to rotate the vehicle toward the desired orientation.
+The derivative term:
+−Kdωe
+acts to damp rotational motion and suppress oscillations.
+Together, these terms provide stable second-order rotational behavior.
+17.8 Torque Saturation
+Real actuators have limited torque capability.
+The commanded torque must be bounded:
+τcmd←clip(τ cmd,τmin,τmax)
+where clipping is applied component-wise.
+Failure to apply saturation can result in unrealistic angular accelerations.
+17.9 Application of Control Torque
+The control torque is applied directly in the rotational dynamics equation:
+τ=τ cmd
+Additional torque sources (e.g., aerodynamic or thrust-induced torques) may be added in later
+phases.
+17.10 Closed-Loop Update Sequence
+At each simulation time step, the following sequence must be followed:
+1. Compute guidance commandq cmd
+2. Compute quaternion errorq e
+3. Compute angular velocity errorω e
+4. Compute control torqueτ cmd
+5. Apply torque in rotational dynamics
+Reordering these steps will result in incorrect behavior.
+33
+
+--- PAGE 34 ---
+
+17.11 Stability Considerations
+The PD control law provides asymptotic stability for small orientation errors when:
+•K p>0
+•K d>0
+Excessively large gains may excite numerical instability and must be avoided.
+17.12 Developer Validation Checks
+Before proceeding to phase termination logic, verify:
+•Orientation converges to command without oscillation
+•Angular velocity decays to zero under constant command
+•Torque remains within actuator limits
+Only after these checks pass should ascent phase termination logic be implemented.
+18 Ascent Phase Termination and State Handoff
+This section defines the conditions under which the ascent phase ends and specifies how the complete
+vehicle state is transferred to the next mission phase.
+Correct phase termination is essential. An incorrect or premature termination will invalidate
+all subsequent phases, regardless of their correctness.
+18.1 Definition of Phase Termination
+Phase termination refers to the moment when:
+•Propulsive ascent ends
+•The vehicle transitions from powered flight to ballistic or orbital motion
+Termination is defined byphysical conditions, not by elapsed time.
+18.2 Engine Cutoff (Main Engine Cutoff)
+The primary termination event for ascent is main engine cutoff (MECO).
+Engine cutoff occurs when any of the following conditions is met:
+1. Propellant mass reaches zero
+2. A commanded cutoff event is triggered
+34
+
+--- PAGE 35 ---
+
+3. A predefined target condition is satisfied
+At engine cutoff:
+T= 0⇒˙m= 0
+No thrust may be applied beyond this point.
+18.3 Target Condition for Ascent Completion
+The ascent phase is considered complete when the vehicle reaches a state suitable for coast or
+orbital insertion.
+Typical target conditions include:
+•Apogee altitude exceeds a specified threshold
+•Vehicle speed exceeds a minimum orbital insertion requirement
+•Vehicle orientation is within acceptable bounds
+The exact criteria are mission-dependent and must be configurable.
+18.4 Apogee Preparation Logic
+Although apogee detection itself occurs during the coast phase, ascent must prepare for it.
+At ascent termination, the following quantities must be valid and continuous:
+•Position vectorr
+•Velocity vectorv
+•Orbital energy and angular momentum
+No filtering, smoothing, or artificial adjustment is permitted at termination.
+18.5 State Vector Consistency Requirement
+The full vehicle state at ascent termination is:
+xfinal=
+r
+v
+q
+ω
+m
+
+This state must satisfy:
+•Quaternion normalization:∥q∥= 1
+35
+
+--- PAGE 36 ---
+
+•Positive mass:m >0
+•Finite position and velocity components
+Any violation indicates a numerical or modeling error.
+18.6 Freeze Rule for Ascent Phase
+Once ascent phase validation is complete, the ascent module is considered frozen.
+This means:
+•No refactoring is allowed
+•No tuning is allowed without physics justification
+•No interface changes are allowed
+All subsequent phases must consume the ascent output state exactly as produced.
+18.7 State Handoff Interface
+The ascent phase outputs a single structured data object containing:
+•Time stamp of termination
+•Full state vectorx final
+•Auxiliary diagnostic quantities
+No hidden or implicit state is permitted.
+18.8 Diagnostic Outputs at Termination
+At ascent termination, the following diagnostics must be recorded:
+•Altitude
+•Speed
+•Dynamic pressure
+•Thrust history
+•Control torque history
+These diagnostics are required for verification and validation.
+36
+
+--- PAGE 37 ---
+
+18.9 Numerical Continuity Guarantee
+There must be no discontinuity in any state variable at phase transition.
+Formally, for any state componentx i:
+lim
+t→t−
+endxi(t) = lim
+t→t+
+endxi(t)
+Any discontinuity invalidates the simulation.
+18.10 Developer Validation Checklist
+Before proceeding to the next mission phase, verify:
+•Thrust is zero after cutoff
+•Mass remains constant after cutoff
+•Orientation remains well-defined
+•Trajectory continues smoothly under gravity
+Only after these checks pass may the simulation proceed to the coast or orbit insertion phase.
+19 Phase II: Coast Dynamics and Apogee Detection
+This section defines the dynamics and logic governing the coast phase that follows ascent and
+precedes orbital insertion.
+During the coast phase:
+•The engine is inactive
+•No propulsive forces are applied
+•The vehicle follows a purely ballistic trajectory under gravity and drag
+This phase is critical for accurate apogee detection and timing of orbital insertion burns.
+19.1 Definition of the Coast Phase
+The coast phase begins immediately after ascent termination (MECO) and ends when a predefined
+orbital event is detected.
+Formally, the coast phase is active when:
+T= 0 and ˙m= 0
+No thrust commands are permitted during this phase.
+37
+
+--- PAGE 38 ---
+
+19.2 Forces Acting During Coast
+During coast, the total force acting on the vehicle is:
+Ftotal=F grav+F drag
+No thrust force or thrust-induced torque may be applied.
+If the vehicle is above the effective atmosphere, drag may be negligible or zero.
+19.3 Translational Dynamics During Coast
+The translational equations of motion remain unchanged:
+˙r=v
+˙v=1
+m(Fgrav+F drag)
+Mass remains constant:
+˙m= 0
+19.4 Rotational Dynamics During Coast
+Rotational dynamics continue to evolve under applied torques.
+In Phase II, control torques may be used to:
+•Maintain a desired attitude
+•Prepare orientation for orbital insertion burn
+The rotational equations remain:
+˙ω=I−1(τ−ω×(Iω))
+Torque commands must respect actuator limits.
+19.5 Purpose of Apogee Detection
+Apogee is the point along the trajectory where radial distance from the Earth is maximized.
+For orbital insertion strategies that rely on a tangential burn at apogee, accurate detection of
+this point is essential.
+19.6 Radial Distance and Radial Velocity
+Define the radial distance:
+r=∥r∥
+38
+
+--- PAGE 39 ---
+
+Define the radial velocity as the time derivative of radial distance:
+˙r=d
+dt∥r∥=r·v
+∥r∥
+This scalar quantity indicates whether the vehicle is moving away from or toward the Earth.
+19.7 Apogee Condition
+Apogee occurs when radial velocity crosses zero from positive to negative:
+˙r= 0 with ¨r <0
+In discrete-time simulations, this condition is detected numerically.
+19.8 Discrete Apogee Detection Logic
+Let ˙r kdenote radial velocity at time stepk.
+Apogee is detected when:
+˙rk−1>0 and ˙r k≤0
+This indicates that the maximum radial distance has been passed.
+19.9 Interpolation for Improved Accuracy
+To improve apogee timing accuracy, interpolation may be used between time steps.
+A simple linear interpolation estimates the apogee timet a:
+ta=tk−1+˙rk−1
+˙rk−1−˙rk∆t
+Corresponding state variables may be interpolated if higher precision is required.
+19.10 Numerical Robustness Considerations
+To avoid false detections:
+•Ignore zero-crossings at very low speeds
+•Apply a minimum altitude threshold
+•Ensure monotonic behavior near apogee
+Apogee detection must be robust to numerical noise.
+39
+
+--- PAGE 40 ---
+
+19.11 Attitude Preparation for Orbital Insertion
+During the coast phase, the vehicle may be commanded to rotate to a desired attitude suitable for
+orbital insertion.
+Typically, this involves aligning the thrust axis with the velocity direction at apogee:
+ˆtcmd=ˆv
+This preparation ensures immediate and efficient burn initiation.
+19.12 Phase Transition Condition
+The coast phase ends when apogee is detected and all of the following are true:
+•Engine remains off
+•Vehicle state is valid and continuous
+•Guidance system signals readiness for insertion
+At this point, control is transferred to the orbital insertion phase.
+19.13 State Handoff to Orbital Insertion
+The state vector at apogee is:
+xapogee =
+ra
+va
+qa
+ωa
+m
+
+This state is passed without modification to the orbital insertion phase.
+19.14 Developer Validation Checklist
+Before proceeding to orbital insertion, verify:
+•Radial velocity changes sign at apogee
+•Apogee altitude matches expected trajectory
+•No thrust is applied during coast
+•State variables remain continuous
+Only after these checks pass may orbital insertion logic be executed.
+40
+
+--- PAGE 41 ---
+
+20 Phase III: Orbital Insertion and Circularization Dynamics
+This section defines the dynamics and logic required to transition the vehicle from a ballistic coast
+trajectory into a stable orbit.
+Orbital insertion is achieved by applying a propulsive burn near apogee to adjust the vehicle’s
+velocity such that the resulting trajectory becomes closed and non-intersecting with the Earth.
+20.1 Objective of Orbital Insertion
+The objective of orbital insertion is to modify the vehicle’s velocity vector so that:
+•The trajectory becomes an orbit rather than a ballistic arc
+•The perigee altitude is above the Earth’s surface
+•The orbit satisfies mission-specific constraints (e.g., altitude)
+In this document, emphasis is placed on near-circular low Earth orbit (LEO) insertion.
+20.2 Orbital Mechanics Preliminaries
+Orbital motion under central gravity is fully described by:
+•Specific mechanical energy
+•Specific angular momentum
+These quantities are invariant in the absence of thrust and drag.
+20.3 Specific Mechanical Energy
+The specific mechanical energyεis defined as:
+ε=1
+2∥v∥2−µ
+∥r∥
+where:
+•vis the inertial velocity vector
+•ris the inertial position vector
+•µis the Earth’s gravitational parameter
+For bound orbits:
+ε <0
+41
+
+--- PAGE 42 ---
+
+20.4 Specific Angular Momentum
+The specific angular momentum vector is defined as:
+h=r×v
+Its magnitude is:
+h=∥h∥
+Angular momentum determines the size and orientation of the orbital plane.
+20.5 Circular Orbit Condition
+For a circular orbit of radiusr c, the required orbital speed is:
+vc=rµ
+rc
+In a circular orbit:
+•Velocity magnitude is constant
+•Velocity is perpendicular to position
+That is:
+r·v= 0
+20.6 Tangential Burn Strategy
+Orbital insertion is performed using a tangential burn at or near apogee.
+During this burn:
+•Thrust is aligned with the velocity direction
+•Radial velocity is approximately zero
+The commanded thrust direction is:
+ˆtcmd=ˆv
+20.7 Velocity Increment Requirement
+Letv adenote the vehicle speed at apogee prior to insertion.
+The required velocity increment for circularization is:
+∆v=v c−va
+42
+
+--- PAGE 43 ---
+
+If ∆v >0, thrust must increase speed. If ∆v <0, thrust must decrease speed (rare in ascent
+scenarios).
+20.8 Insertion Burn Dynamics
+During orbital insertion, thrust is reactivated:
+T >0
+The translational dynamics become:
+˙v=1
+m(Fgrav+F thrust +F drag)
+Atmospheric drag is typically negligible at orbital altitudes but may be retained for complete-
+ness.
+20.9 Burn Termination Criterion
+The insertion burn is terminated when the velocity magnitude satisfies:
+∥v∥ ≥v c−ϵv
+whereϵ vis a small tolerance.
+Alternatively, termination may be based on orbital parameters computed in real time.
+20.10 Orbit Shape Verification
+After burn termination, orbital parameters must be evaluated to verify successful insertion.
+The eccentricity vector is defined as:
+e=1
+µ(v×h)−r
+∥r∥
+The eccentricity magnitude is:
+e=∥e∥
+For a near-circular orbit:
+e≪1
+20.11 Perigee and Apogee Radii
+The semi-major axis is given by:
+a=−µ
+2ε
+43
+
+--- PAGE 44 ---
+
+The perigee and apogee radii are:
+rp=a(1−e)
+ra=a(1 +e)
+A valid orbit requires:
+rp> R E
+20.12 State Continuity Requirement
+No state variables may be reset or altered artificially during orbital insertion.
+The final orbital state is:
+xorbit=
+r
+v
+q
+ω
+m
+
+This state must satisfy all physical and numerical constraints.
+20.13 Developer Validation Checklist
+Before proceeding to subsequent mission phases, verify:
+•Orbital energy is negative
+•Perigee altitude is above Earth’s surface
+•Eccentricity is within tolerance
+•No thrust is applied after insertion completion
+Only after these checks pass may the simulation proceed to mission-dependent phases such as
+deorbit or station-keeping.
+21 Phase IV: Deorbit Maneuver Dynamics
+This section defines the physics and logic governing the deorbit maneuver, whose purpose is to
+transition the vehicle from a stable orbit onto a controlled reentry trajectory.
+The deorbit maneuver reduces the vehicle’s orbital energy such that the resulting trajectory
+intersects the upper atmosphere at a prescribed location and flight path angle.
+44
+
+--- PAGE 45 ---
+
+21.1 Objective of Deorbit
+The objective of deorbit is to:
+•Lower the perigee altitude below the atmospheric interface
+•Target a specific reentry corridor
+•Preserve controllability and thermal safety
+Deorbit is accomplished via a brief retrograde thrust maneuver.
+21.2 Orbital Energy Reduction
+Recall the specific mechanical energy:
+ε=1
+2∥v∥2−µ
+∥r∥
+A reduction in orbital energy corresponds to a reduction in velocity magnitude.
+The deorbit burn decreasesεsuch that:
+εafter< εbefore
+21.3 Retrograde Burn Direction
+A retrograde burn is one in which thrust is applied opposite to the direction of motion.
+The commanded thrust direction is:
+ˆtcmd=−ˆv
+This direction reduces orbital speed and lowers the perigee altitude.
+21.4 Deorbit Burn Location
+For near-circular orbits, the deorbit burn is typically performed near apogee or at a designated
+orbital longitude.
+The exact location determines:
+•Reentry ground track
+•Entry interface conditions
+This document does not prescribe a specific targeting algorithm but assumes the burn location
+is preselected.
+45
+
+--- PAGE 46 ---
+
+21.5 Velocity Change Requirement
+Letr bdenote the orbital radius at the burn point.
+The post-burn perigee radiusr pis determined by orbital mechanics.
+The required velocity decrement ∆v deorbit is mission-dependent and must be computed exter-
+nally or via targeting logic.
+21.6 Deorbit Burn Dynamics
+During the deorbit burn:
+T >0
+The translational equations of motion are:
+˙v=1
+m(Fgrav+F thrust)
+Aerodynamic drag is negligible during the burn itself.
+21.7 Burn Termination Criteria
+The deorbit burn is terminated when one or more of the following conditions are met:
+•Target velocity decrement is achieved
+•Target perigee altitude is reached
+•Maximum allowable burn duration is exceeded
+At termination:
+T= 0
+21.8 Post-Deorbit Trajectory Verification
+After the burn, the resulting orbit must satisfy:
+rp< R E+hentry
+whereh entryis the designated atmospheric entry altitude.
+46
+
+--- PAGE 47 ---
+
+21.9 State Handoff to Reentry Phase
+The deorbit phase outputs the state:
+xdeorbit =
+r
+v
+q
+ω
+m
+
+This state becomes the initial condition for the reentry phase.
+21.10 Numerical Continuity Requirement
+As with all phase transitions:
+•No state variable may be reset
+•No filtering or smoothing is permitted
+State continuity is mandatory.
+21.11 Developer Validation Checklist
+Before proceeding to reentry, verify:
+•Orbital energy has decreased
+•Perigee altitude is below atmospheric interface
+•Thrust is zero after burn
+•Trajectory intersects the atmosphere
+Only after these checks pass may reentry dynamics be simulated.
+22 Phase V: Atmospheric Reentry Dynamics
+This section defines the physical models and logic governing atmospheric reentry. Reentry is char-
+acterized by strong aerodynamic forces, rapid energy dissipation, and strict constraints on heating
+and structural loads.
+The objective of this phase is to guide the vehicle safely from orbital flight into the lower
+atmosphere while maintaining controllability and respecting thermal and structural limits.
+47
+
+--- PAGE 48 ---
+
+22.1 Definition of Entry Interface
+The atmospheric entry interface is defined as the point where aerodynamic effects become non-
+negligible.
+This interface is specified by an altitude threshold:
+hentry≈120 km
+Below this altitude, atmospheric density increases rapidly and aerodynamic forces must be
+modeled explicitly.
+22.2 Forces Acting During Reentry
+During reentry, the total force acting on the vehicle is:
+Ftotal=F grav+F drag+F lift
+No propulsive thrust is assumed during the initial reentry phase.
+22.3 Aerodynamic Reference Frames
+Aerodynamic forces are defined relative to the velocity vector.
+The velocity unit vector is:
+ˆv=v
+∥v∥
+The lift direction is perpendicular to the velocity vector and lies in the plane defined by the
+vehicle orientation.
+22.4 Atmospheric Density Model
+The atmospheric density model introduced during ascent remains applicable:
+ρ(h) =ρ 0exp
+−h
+H
+At reentry altitudes, density varies rapidly with altitude, making accurate integration essential.
+22.5 Dynamic Pressure During Reentry
+Dynamic pressure is defined as:
+q=1
+2ρ∥v∥2
+Dynamic pressure governs:
+•Aerodynamic loading
+48
+
+--- PAGE 49 ---
+
+•Structural stress
+•Control authority
+Excessive dynamic pressure may require guidance adjustments.
+22.6 Drag Force During Reentry
+The drag force magnitude is:
+D=qC DA
+The drag force vector is:
+Fdrag=−D ˆv
+Drag acts to reduce velocity magnitude and dissipate kinetic energy.
+22.7 Lift Force Model
+Lift arises when the vehicle is oriented at a nonzero angle of attack relative to the flow.
+The lift force magnitude is:
+L=qC LA
+whereC Lis the lift coefficient.
+22.8 Lift Direction
+The lift force is perpendicular to the velocity vector.
+Letˆndenote a unit vector normal to the velocity direction, determined by vehicle attitude.
+Then the lift force vector is:
+Flift=Lˆn
+The sign and direction of lift are controlled by vehicle orientation.
+22.9 Angle of Attack
+The angle of attackαis defined as the angle between the bodyz-axis and the velocity vector.
+It determines the lift coefficient:
+CL=C L(α)
+In Phase V,C Lmay be approximated as linear for small angles.
+22.10 Equations of Motion During Reentry
+The translational equations of motion are:
+˙r=v
+49
+
+--- PAGE 50 ---
+
+˙v=1
+m(Fgrav+F drag+F lift)
+Mass is assumed constant during unpowered reentry:
+˙m= 0
+22.11 Thermal Loading (Conceptual)
+Aerodynamic heating is correlated with dynamic pressure and velocity.
+A simplified heat rate model is:
+˙Q∝ρ1/2∥v∥3
+This quantity is not used to alter dynamics directly but may be monitored to enforce trajectory
+constraints.
+22.12 Reentry Guidance Objective
+The guidance objective during reentry is to:
+•Control deceleration rate
+•Maintain acceptable heating levels
+•Target a desired landing region
+This is achieved primarily through modulation of angle of attack and lift.
+22.13 Reentry Phase Termination
+The reentry phase ends when:
+•Vehicle speed falls below hypersonic regime
+•Altitude drops below a predefined threshold
+•Controlled descent becomes feasible
+At this point, control is transferred to the powered descent phase.
+22.14 State Handoff to Powered Descent
+The final reentry state is:
+xreentry =
+r
+v
+q
+ω
+m
+
+50
+
+--- PAGE 51 ---
+
+This state must be continuous and physically valid.
+22.15 Developer Validation Checklist
+Before proceeding to powered descent, verify:
+•Velocity decreases monotonically
+•Lift and drag act in correct directions
+•Dynamic pressure peaks and then decreases
+•No thrust is applied
+Only after these checks pass may powered descent logic be executed.
+23 Phase VI: Powered Descent and Soft Landing Dynamics
+This section defines the physical models, guidance logic, and termination conditions for the powered
+descent and landing phase.
+The objective of this phase is to transition the vehicle from atmospheric flight to a controlled,
+vertical, soft landing with acceptable touchdown velocity and attitude.
+Powered descent is the most control-intensive phase of the mission and requires tight coupling
+between guidance, control, and propulsion.
+23.1 Definition of Powered Descent Phase
+The powered descent phase begins when:
+•Atmospheric reentry has sufficiently reduced velocity
+•Aerodynamic lift is no longer the primary control mechanism
+•Engines are capable of providing deceleration and hover thrust
+At this point, thrust is re-enabled:
+T >0
+23.2 Landing Frame and Vertical Axis
+For landing operations, it is convenient to define a local vertical direction.
+The local vertical unit vector is defined as:
+ˆzL=r
+∥r∥
+This vector points radially outward from the Earth and approximates the local “up” direction
+near the landing site.
+51
+
+--- PAGE 52 ---
+
+23.3 Decomposition of Velocity
+The inertial velocity vector is decomposed into vertical and horizontal components:
+vvert=v· ˆzL
+vhoriz=v−v vertˆzL
+Safe landing requires both components to approach zero.
+23.4 Powered Descent Guidance Objective
+The guidance objectives during powered descent are:
+•Reduce vertical velocity to near zero at touchdown
+•Eliminate horizontal velocity
+•Maintain near-vertical vehicle orientation
+These objectives are enforced simultaneously.
+23.5 Vertical Velocity Control
+A desired vertical velocity profile is defined as a function of altitude.
+Letv vert,cmd (h) denote the commanded vertical velocity.
+A simple linear profile may be used:
+vvert,cmd (h) =−k hh
+wherek h>0 is a tuning parameter.
+23.6 Vertical Acceleration Command
+The vertical acceleration command is:
+avert,cmd =kv(vvert,cmd −vvert)
+wherek vis a positive gain.
+23.7 Thrust Requirement for Vertical Control
+The thrust magnitude required to achieve the commanded vertical acceleration is:
+Tcmd=m(a vert,cmd +geff)
+52
+
+--- PAGE 53 ---
+
+whereg effis the local gravitational acceleration magnitude.
+Thrust magnitude must satisfy:
+0≤T cmd≤T max
+23.8 Horizontal Velocity Nulling
+Horizontal velocity is reduced by tilting the thrust vector to generate lateral acceleration.
+The desired horizontal acceleration is:
+ahoriz,cmd =−k(v)
+hvhoriz
+This acceleration is achieved by adjusting vehicle orientation.
+23.9 Attitude Command for Combined Control
+The commanded thrust direction is:
+ˆtcmd=ahoriz,cmd + (a vert,cmd +geff)ˆzL
+∥ahoriz,cmd + (a vert,cmd +geff)ˆzL∥
+This direction balances vertical deceleration and horizontal velocity nulling.
+23.10 Conversion to Attitude Quaternion
+As in ascent guidance, the commanded thrust direction is converted to a commanded attitude
+quaternionq cmdsuch that:
+R(q cmd)
+0
+0
+1
+=ˆtcmd
+The attitude control law defined previously is reused without modification.
+23.11 Touchdown Condition
+Touchdown is defined when all of the following are satisfied:
+•Altitudeh≤h tol
+•|v vert| ≤v tol
+•∥v horiz∥ ≤v tol,h
+Typical tolerances are mission-dependent.
+53
+
+--- PAGE 54 ---
+
+23.12 Engine Shutdown at Touchdown
+At touchdown:
+T= 0⇒˙m= 0
+No further thrust is applied.
+23.13 Landing Stability Requirement
+Immediately after touchdown:
+•Angular velocity should be near zero
+•Orientation should be upright
+If these conditions are violated, the landing is considered unsuccessful.
+23.14 Final State Definition
+The final landed state is:
+xlanded =
+r
+v
+q
+ω
+m
+
+This state represents mission completion.
+23.15 Developer Validation Checklist
+Before declaring mission success, verify:
+•Vertical velocity approaches zero smoothly
+•Horizontal velocity is fully nulled
+•Thrust remains within limits
+•Touchdown occurs without discontinuities
+Only after these checks pass may the simulation terminate.
+24 Global Simulation Loop, Time Integration, and Phase Man-
+agement
+This section defines the global structure of the simulation, including the time integration loop,
+phase management logic, and strict ordering of computations.
+54
+
+--- PAGE 55 ---
+
+This chapter is critical for developers. Even if all equations are correct, incorrect ordering or
+phase handling will invalidate the simulation.
+24.1 Single Continuous Simulation Principle
+The entire mission is simulated as asingle continuous time evolution.
+There must be:
+•One global time variablet
+•One global state vectorx(t)
+Mission phases alter theactive models and logic, not the definition of the state itself.
+24.2 Global State Vector
+At all times, the vehicle state is:
+x(t) =
+r(t)
+v(t)
+q(t)
+ω(t)
+m(t)
+
+No phase is permitted to add, remove, or reset elements of this vector.
+24.3 Simulation Time Discretization
+Let:
+•tkdenote the simulation time at stepk
+•∆tdenote the fixed time step
+Then:
+tk+1=tk+ ∆t
+Adaptive time stepping may be used, but the ordering defined below must be preserved.
+24.4 Mission Phase Enumeration
+Each simulation step belongs to exactly one mission phase:
+•Phase I: Ascent
+•Phase II: Coast
+•Phase III: Orbital Insertion
+55
+
+--- PAGE 56 ---
+
+•Phase IV: Deorbit
+•Phase V: Reentry
+•Phase VI: Powered Descent
+The active phase determines:
+•Which forces are enabled
+•Which guidance logic is active
+•Which termination conditions are evaluated
+24.5 Phase Transition Logic
+Phase transitions are event-driven.
+A phase transition occurs only when the termination conditions of the current phase are satisfied.
+Time-based transitions are prohibited.
+24.6 High-Level Simulation Loop
+At each time step, the following operations are performed in strict order:
+1. Determine active mission phase
+2. Compute guidance commands (if applicable)
+3. Compute control torques
+4. Compute forces and moments
+5. Compute translational acceleration
+6. Compute angular acceleration
+7. Integrate translational states
+8. Integrate rotational states
+9. Normalize quaternion
+10. Update mass
+11. Check phase termination conditions
+Reordering any of these steps is not permitted.
+56
+
+--- PAGE 57 ---
+
+24.7 Guidance Evaluation
+Guidance logic is evaluated using thecurrentstatex(t k).
+Guidance produces:
+•Desired thrust direction
+•Desired attitude quaternion
+•Desired velocity or acceleration profiles
+Guidance must not directly modify the state vector.
+24.8 Control Evaluation
+Control laws consume:
+•Current statex(t k)
+•Guidance commands
+Control outputs:
+•Control torqueτ
+Control must respect actuator limits.
+24.9 Force and Moment Assembly
+The total force is assembled as:
+Ftotal=F grav+F thrust +F drag+F lift
+depending on the active phase.
+The total torque is assembled as:
+τtotal=τcontrol +τother
+where additional torque sources may be phase-dependent.
+24.10 State Derivative Evaluation
+The state derivatives are computed as:
+˙r=v
+˙v=1
+mFtotal
+57
+
+--- PAGE 58 ---
+
+˙q=1
+2"
+0−ωT
+ω−[ω] ×#
+q
+˙ω=I−1(τtotal−ω×(Iω))
+˙m= phase-dependent
+24.11 Numerical Integration
+State integration is performed using a numerical integrator:
+•Explicit Euler (testing only)
+•Runge–Kutta methods (recommended)
+All state components must be integrated consistently using the same integrator.
+24.12 Quaternion Normalization Enforcement
+After integration:
+q←q
+∥q∥
+This operation must be performed every time step without exception.
+24.13 Mass Update Ordering
+Mass update must occur:
+•After thrust computation
+•Before the next acceleration evaluation
+Using inconsistent mass values results in force imbalance.
+24.14 Phase Termination Evaluation
+Termination conditions are evaluated after state integration.
+If termination conditions are met:
+•Phase flag is updated
+•No state variables are modified
+The new phase becomes active at the next time step.
+58
+
+--- PAGE 59 ---
+
+24.15 Data Logging and Diagnostics
+At each time step, the following quantities should be logged:
+•State vector components
+•Forces and torques
+•Active mission phase
+•Guidance and control commands
+This data is essential for debugging and validation.
+24.16 Simulation Termination
+The simulation terminates when:
+•Landing is successful, or
+•A predefined failure condition is triggered
+Upon termination, the final statex finalis recorded.
+24.17 Developer Validation Checklist
+Before declaring the simulation correct, verify:
+•Phase transitions occur exactly once and in order
+•State variables remain continuous across phases
+•Quaternion norm remains unity throughout
+•Energy changes are physically explainable
+Only after these checks pass may the simulation be considered valid.
+25 Verification and Validation (V&V) Framework
+This section defines a rigorous verification and validation framework for the RLV simulation.
+Verificationanswers the question:“Is the code solving the equations correctly?”
+Validationanswers the question:“Do the equations represent physical reality adequately for
+the intended purpose?”
+Both are mandatory. A simulation that is verified but not validated, or validated but not
+verified, is unacceptable.
+59
+
+--- PAGE 60 ---
+
+25.1 Levels of Verification
+Verification is performed at three levels:
+1. Unit-level verification (individual equations and functions)
+2. Subsystem-level verification (guidance, control, dynamics)
+3. System-level verification (full mission execution)
+Each level must pass before proceeding to the next.
+25.2 Unit-Level Verification
+Unit-level verification ensures that individual mathematical components are implemented correctly.
+25.2.1 Vector and Matrix Operations
+Verify:
+•Vector norms match analytical values
+•Cross-product identities hold
+•Rotation matrices are orthogonal
+Example check:
+RTR=Iwithin numerical tolerance
+25.2.2 Quaternion Algebra
+Verify:
+•∥q∥= 1 after normalization
+•q⊗q−1= [1,0,0,0]T
+•Pure quaternion rotation preserves vector magnitude
+25.2.3 Quaternion Kinematics
+Test cases:
+•Zero angular velocity⇒constant orientation
+•Constant angular velocity⇒uniform rotation
+Analytical solutions may be used for comparison.
+60
+
+--- PAGE 61 ---
+
+25.2.4 Force Model Units Check
+Verify dimensional consistency:
+•Force units: Newtons
+•Acceleration units: m/s2
+•Energy units: J/kg
+Any dimensional inconsistency indicates a coding error.
+25.3 Subsystem-Level Verification
+Subsystem-level verification checks coupled components.
+25.3.1 Rotational Dynamics Verification
+With zero applied torque:
+τ=0
+Verify:
+•Angular momentum magnitude remains constant
+•Angular velocity remains constant for diagonal inertia
+25.3.2 Translational Dynamics Verification
+With gravity only:
+•Trajectory is a conic section
+•Mechanical energy is conserved
+Verify:
+ε(t) = const (within tolerance)
+25.3.3 Thrust Verification
+With constant thrust and no gravity:
+•Acceleration is constant
+•Velocity increases linearly
+Mass depletion must match analytical integration.
+61
+
+--- PAGE 62 ---
+
+25.3.4 Aerodynamic Drag Verification
+Verify:
+•Drag is zero at zero velocity
+•Drag scales with∥v∥2
+•Drag opposes motion
+25.4 Guidance and Control Verification
+25.4.1 Guidance Geometry Checks
+Verify:
+•Vertical ascent points radially outward
+•Gravity turn aligns thrust with velocity
+Ensure no discontinuities in commanded attitude.
+25.4.2 Control Law Stability
+With fixed command:
+•Orientation error converges to zero
+•Angular velocity decays to zero
+Excessive oscillations indicate improper gain selection.
+25.5 System-Level Verification
+System-level verification exercises the full mission.
+25.5.1 Phase Transition Integrity
+Verify:
+•Each phase transition occurs exactly once
+•Phases occur in correct order
+•No state discontinuities occur
+62
+
+--- PAGE 63 ---
+
+25.5.2 Energy Accounting
+Track total mechanical energy:
+E(t) =1
+2m∥v∥2−µm
+∥r∥
+Verify:
+•Energy increases during thrust
+•Energy decreases during drag
+•Energy is conserved during coast
+25.5.3 Momentum Consistency
+Verify:
+•Linear momentum changes only due to external forces
+•Angular momentum changes only due to applied torques
+25.6 Validation Against Physical Expectations
+Validation compares simulation behavior against known physical expectations and engineering in-
+tuition.
+25.6.1 Ascent Validation
+Verify:
+•Maximum dynamic pressure occurs at realistic altitude
+•Gravity turn produces smooth pitch-over
+25.6.2 Orbital Validation
+Verify:
+•Circularization produces near-zero eccentricity
+•Orbital period matches Keplerian prediction
+25.6.3 Reentry Validation
+Verify:
+•Velocity decreases monotonically
+•Heating peaks near maximum dynamic pressure
+63
+
+--- PAGE 64 ---
+
+25.6.4 Landing Validation
+Verify:
+•Vertical velocity at touchdown is within tolerance
+•Horizontal velocity is near zero
+25.7 Tolerance Definition
+Numerical tolerances must be defined explicitly.
+Example tolerances:
+•Quaternion norm error:<10−6
+•Energy drift (coast):<0.1%
+•Position continuity error:<10−3m
+25.8 Failure Detection
+The simulation must detect and flag:
+•NaN or infinite state values
+•Negative mass
+•Quaternion norm collapse
+On detection, the simulation must terminate gracefully.
+25.9 Developer V&V Checklist
+Before declaring the simulation complete, verify:
+•All unit tests pass
+•All subsystem tests pass
+•At least one full mission executes successfully
+Only after satisfying these criteria may the simulation be considered verified and validated.
+26 Failure Modes, Safeguards, and Abort Logic
+This section defines how the simulation detects, handles, and responds to failure conditions.
+Failure handling is not optional. Any high-fidelity simulation must explicitly define how non-
+physical states, numerical divergence, or mission-threatening events are detected and mitigated.
+This section applies to all mission phases.
+64
+
+--- PAGE 65 ---
+
+26.1 Philosophy of Failure Handling
+Failure handling in this simulation follows three principles:
+1. Detect failures as early as possible
+2. Prevent propagation of invalid states
+3. Terminate or abort safely and transparently
+Silent failure is prohibited.
+26.2 Categories of Failure
+Failures are classified into the following categories:
+•Numerical failures
+•Physical infeasibility
+•Control and guidance failures
+•Mission-level abort conditions
+Each category has explicit detection criteria.
+26.3 Numerical Failure Detection
+Numerical failures arise from floating-point instability or invalid arithmetic.
+26.3.1 NaN and Infinity Detection
+At each simulation step, all state components must be checked:
+xi∈ {r,v,q,ω, m}
+If any component satisfies:
+xi= NaN or|x i|=∞
+then a numerical failure is declared.
+26.3.2 Quaternion Norm Collapse
+If the quaternion norm satisfies:
+∥q∥< ϵ q
+whereϵ qis a small threshold, orientation is no longer meaningful.
+This condition constitutes a fatal numerical failure.
+65
+
+--- PAGE 66 ---
+
+26.3.3 Time-Step Instability
+Excessive growth in state variables between steps indicates instability.
+Example criterion:
+∥vk+1−vk∥> γ v
+whereγ vis a predefined limit.
+26.4 Physical Infeasibility Detection
+Physical infeasibility occurs when the simulation violates basic physical laws or constraints.
+26.4.1 Negative Mass
+Vehicle mass must satisfy:
+m >0
+Ifm≤0, the simulation is invalid and must terminate immediately.
+26.4.2 Penetration of Earth
+The vehicle must not enter the Earth.
+Define altitude:
+h=∥r∥ −R E
+If:
+h <0
+and the phase is not landing, a physical failure is declared.
+26.4.3 Excessive Acceleration
+Acceleration magnitude exceeding plausible limits indicates instability:
+∥a∥> a max
+wherea maxis a configurable bound.
+26.5 Control and Guidance Failures
+Control failures occur when the system can no longer track commanded guidance.
+66
+
+--- PAGE 67 ---
+
+26.5.1 Loss of Attitude Control
+If the attitude error satisfies:
+∥qev∥> q max
+for a sustained duration, attitude control is considered lost.
+26.5.2 Torque Saturation Persistence
+If control torque remains saturated for longer than a threshold duration, the system may be unable
+to track guidance.
+This condition must be flagged.
+26.6 Engine and Propulsion Failures
+26.6.1 Engine-Out Detection
+An engine-out condition is defined as:
+Tcmd>0 andT= 0
+This indicates commanded thrust is not being delivered.
+26.6.2 Partial Thrust Loss
+If actual thrust satisfies:
+T < ηT cmd
+where 0< η <1, partial thrust loss is detected.
+26.7 Abort Logic During Ascent
+During ascent, abort logic prioritizes safety and state validity.
+If any of the following occur:
+•Engine-out below minimum altitude
+•Loss of attitude control
+•Numerical failure
+then ascent must be aborted.
+Abort action:
+•Immediately cut thrust
+•Freeze guidance commands
+67
+
+--- PAGE 68 ---
+
+•Transition to ballistic descent logic
+26.8 Abort Logic During Orbital Phases
+During orbit or coast phases:
+•Numerical failures cause immediate termination
+•Control failures trigger safe-mode attitude
+Safe-mode attitude aligns the vehicle to minimize rotational energy.
+26.9 Abort Logic During Reentry
+During reentry:
+•Loss of control authority is catastrophic
+•Excessive heating triggers trajectory constraint violation
+If heating exceeds allowable limits, the event must be flagged even if recovery is not possible.
+26.10 Abort Logic During Powered Descent
+During powered descent:
+•Engine-out below minimum altitude results in landing failure
+•Excessive descent rate triggers emergency thrust command
+If recovery is not possible, the simulation must terminate with failure status.
+26.11 Graceful Termination Protocol
+Upon failure detection:
+•Stop state integration
+•Log failure type and time
+•Output final valid state
+No attempt should be made to continue simulation after a fatal failure.
+68
+
+--- PAGE 69 ---
+
+26.12 Failure Reporting
+Each failure must produce:
+•Failure category
+•Trigger condition
+•Time of occurrence
+•State snapshot
+This information is essential for debugging and post-analysis.
+26.13 Developer Invariants
+The following invariants must hold at all times:
+•Quaternion norm≈1
+•Mass>0
+•Finite state values
+Violation of any invariant requires immediate action.
+26.14 Developer Validation Checklist
+Before declaring the simulation robust, verify:
+•All failure modes are detectable
+•All abort paths are reachable
+•Failure reporting is complete and unambiguous
+A simulation without explicit failure handling is incomplete by definition.
+27 Code-to-Equation Traceability and Module Mapping
+This section establishes a one-to-one traceability between mathematical equations defined in this
+document and their corresponding software implementation components.
+Traceability is essential for:
+•Debugging numerical issues
+•Verifying correctness during code reviews
+•Supporting academic and industrial audits
+Every equation introduced in earlier sections must appear in code exactly once, with a clear
+ownership and interface.
+69
+
+--- PAGE 70 ---
+
+27.1 Traceability Philosophy
+The simulation codebase must be organized such that:
+•Each physical concept maps to a single module
+•Each equation has a single authoritative implementation
+•No equation is duplicated across modules
+When discrepancies arise, the equations in this document take precedence.
+27.2 Module Taxonomy
+The recommended high-level module structure is:
+•state/
+•math/
+•dynamics/
+•guidance/
+•control/
+•propulsion/
+•aero/
+•phases/
+•integration/
+•validation/
+Each module has a clearly defined responsibility.
+27.3 State Representation Mapping
+Quantity Equation Reference Module
+Positionr ˙r=v state/position
+Velocityv ˙v=a state/velocity
+Quaternionq Quaternion kinematics state/orientation
+Angular velocityω Euler equations state/angular
+Massm ˙mequation state/mass
+Each state variable must be stored and updated in exactly one location.
+70
+
+--- PAGE 71 ---
+
+27.4 Mathematical Utilities Mapping
+Operation Equation Reference Module
+Vector norm ∥v∥ math/vector
+Cross product a×b math/vector
+Skew matrix [a]× math/matrix
+Quaternion multiply p⊗q math/quaternion
+Quaternion normalize ∥q∥= 1 math/quaternion
+Rotation matrix R(q) math/rotation
+No dynamics module may implement its own math primitives.
+27.5 Rotational Dynamics Mapping
+Equation Section Module
+˙qequation Quaternion kinematics dynamics/rotation
+Euler equation Rigid-body dynamics dynamics/rotation
+Torque saturation Control law control/attitude
+All rotational updates must pass through a single rotational dynamics interface.
+27.6 Translational Dynamics Mapping
+Equation Section Module
+Newton’s law Translational dynamics dynamics/translation
+Gravity force Central gravity dynamics/gravity
+Thrust force Propulsion propulsion/thrust
+Drag force Aerodynamics aero/drag
+Lift force Reentry aerodynamics aero/lift
+Force aggregation must occur in exactly one location.
+27.7 Guidance Mapping
+Guidance Logic Phase Module
+Vertical ascent Phase I guidance/ascent
+Gravity turn Phase I guidance/ascent
+Apogee alignment Phase II guidance/coast
+Tangential burn Phase III guidance/orbit
+Retrograde burn Phase IV guidance/deorbit
+Reentry AoA Phase V guidance/reentry
+Landing guidance Phase VI guidance/landing
+Guidance modules may compute commands but must not modify state variables.
+71
+
+--- PAGE 72 ---
+
+27.8 Control Mapping
+Control Law Equation Module
+Quaternion error qe control/attitude
+PD torque law −Kpqev−K dωcontrol/attitude
+Throttle logic Tcmd control/throttle
+Control modules output commands only, never forces directly.
+27.9 Phase Logic Mapping
+Phase Termination Logic Module
+Ascent MECO phases/ascent
+Coast Apogee detect phases/coast
+Orbit insertion Circularization phases/orbit
+Deorbit Perigee drop phases/deorbit
+Reentry Entry interface phases/reentry
+Landing Touchdown phases/landing
+Phase modules may switch logic but must not alter state directly.
+27.10 Integration Mapping
+Operation Equation Module
+State integration ˙x integration/solver
+Quaternion normalize ∥q∥= 1 integration/post
+Time step update tk+1 integration/time
+All state integration must pass through the integration module.
+27.11 Validation Mapping
+Check Invariant Module
+Quaternion norm ∥q∥ ≈1 validation/orientation
+Energy drift ε= const validation/energy
+Phase continuity No jumps validation/phases
+Failure detection NaN, mass validation/safety
+27.12 Traceability Enforcement Rules
+The following rules are mandatory:
+•Every equation must be referenced in code comments by section number
+•Every module must document which equations it implements
+72
+
+--- PAGE 73 ---
+
+•No “magic constants” are permitted without documentation
+27.13 Audit Readiness
+This traceability framework ensures that:
+•Any code line can be traced to a physical equation
+•Any equation can be located in code within seconds
+This is essential for thesis defense, peer review, and long-term maintenance.
+27.14 Developer Checklist
+Before freezing the codebase, verify:
+•All equations appear exactly once in code
+•All modules map cleanly to this table
+•No undocumented logic exists
+A simulation without traceability is not scientifically defensible.
+28 Numerical Stability, Time-Step Selection, and Performance
+Considerations
+This section addresses numerical stability, time discretization choices, and computational perfor-
+mance considerations for the RLV simulation.
+Even with correct equations and logic, inappropriate numerical choices can render a simulation
+inaccurate, unstable, or misleading.
+28.1 Nature of the Dynamical System
+The RLV simulation is a nonlinear, coupled, multi-scale dynamical system.
+Key characteristics include:
+•Fast rotational dynamics (milliseconds to seconds)
+•Slower translational dynamics (seconds to minutes)
+•Sharp transients during thrust events
+•Smooth evolution during coast phases
+These characteristics impose constraints on numerical integration methods and time-step selec-
+tion.
+73
+
+--- PAGE 74 ---
+
+28.2 Time-Step Selection Principles
+Let ∆tdenote the simulation time step.
+The time step must satisfy:
+∆t≪min(T rot, Ttrans, Tcontrol )
+where:
+•Trotis the characteristic rotational timescale
+•Ttransis the characteristic translational timescale
+•Tcontrol is the control response timescale
+Violating this condition leads to numerical instability or loss of accuracy.
+28.3 Recommended Time-Step Ranges
+Typical recommended values are:
+•Ascent: ∆t= 0.01–0.05 s
+•Coast / Orbit: ∆t= 0.1–1.0 s
+•Reentry: ∆t= 0.01–0.05 s
+•Powered Descent: ∆t= 0.005–0.02 s
+These values are indicative and must be validated through convergence testing.
+28.4 Adaptive Time Stepping
+Adaptive time stepping may be employed to improve efficiency.
+In adaptive schemes:
+•∆tdecreases during high-acceleration events
+•∆tincreases during smooth coast phases
+However, adaptive schemes must:
+•Preserve event detection accuracy
+•Maintain phase transition integrity
+28.5 Integrator Selection
+The choice of integrator significantly affects stability and accuracy.
+74
+
+--- PAGE 75 ---
+
+28.5.1 Explicit Euler
+Explicit Euler integration is:
+•Simple to implement
+•Conditionally stable
+It is suitable only for initial testing and debugging.
+28.5.2 Runge–Kutta Methods
+Fourth-order Runge–Kutta (RK4) integration is recommended for production use.
+Advantages:
+•Good accuracy for smooth dynamics
+•Moderate computational cost
+All state components must be integrated consistently within the RK stages.
+28.5.3 Stiffness Considerations
+During powered descent and control-intensive phases, the system may exhibit stiff behavior.
+If stiffness is observed:
+•Reduce time step
+•Increase damping gains carefully
+Implicit methods may be considered but are not required for baseline fidelity.
+28.6 Quaternion Integration Stability
+Quaternion integration is particularly sensitive to numerical error.
+Stability rules:
+•Always normalize after integration
+•Never integrate rotation matrices directly
+•Avoid large angular velocity spikes
+Failure to enforce these rules leads to orientation drift and instability.
+75
+
+--- PAGE 76 ---
+
+28.7 Force Discontinuities
+Discontinuities in applied forces degrade numerical stability.
+Common sources:
+•Instantaneous thrust cutoff
+•Abrupt control saturation
+•Density model discontinuities
+Mitigation strategies include:
+•Thrust ramping over short intervals
+•Smooth saturation functions
+•Continuous atmospheric models
+28.8 Event Detection Accuracy
+Event detection (e.g., MECO, apogee, touchdown) is sensitive to time-step size.
+To ensure accuracy:
+•Use sign-change detection
+•Apply interpolation when needed
+Large time steps may cause missed or delayed events.
+28.9 Floating-Point Precision
+Double-precision floating-point arithmetic is strongly recommended.
+Single precision is insufficient for:
+•Long-duration orbital propagation
+•Energy conservation checks
+•Quaternion normalization
+28.10 Computational Performance
+Performance considerations include:
+•Number of integration steps
+•Cost of force evaluations
+•Logging overhead
+Optimizations must not compromise correctness.
+76
+
+--- PAGE 77 ---
+
+28.11 Performance Optimization Guidelines
+Recommended practices:
+•Precompute constant parameters
+•Avoid redundant vector normalizations
+•Log diagnostics at configurable rates
+Premature optimization is discouraged.
+28.12 Convergence Testing
+Numerical convergence must be demonstrated.
+Procedure:
+1. Run simulation with ∆t
+2. Repeat with ∆t/2
+3. Compare key outputs
+Acceptable convergence is achieved when differences fall below predefined tolerances.
+28.13 Numerical Error Monitoring
+The simulation should monitor:
+•Quaternion norm drift
+•Energy drift during coast
+•Accumulated integration error
+Excessive drift indicates the need for smaller time steps or improved integration.
+28.14 Developer Checklist
+Before finalizing numerical settings, verify:
+•Stability across all mission phases
+•Convergence with decreasing ∆t
+•No sensitivity to minor parameter perturbations
+Numerical rigor is as important as physical correctness.
+77
+
+--- PAGE 78 ---
+
+29 Configuration Management, Parameterization, and Reproducibil-
+ity
+This section defines how physical parameters, numerical settings, and mission options are managed
+within the simulation.
+A clear configuration strategy is essential to ensure:
+•Reproducibility of results
+•Separation of physics from mission design
+•Safe modification without code changes
+Hard-coded constants are prohibited except for universal physical constants.
+29.1 Configuration Philosophy
+All quantities that may vary between missions, vehicles, or experiments must be externalized into
+configuration files or parameter objects.
+The simulation code must:
+•Read configuration at startup
+•Treat configuration as immutable during runtime
+•Log configuration values used in each run
+This guarantees that results can be reproduced exactly.
+29.2 Categories of Configuration Parameters
+Configuration parameters are grouped into the following categories:
+1. Physical constants
+2. Vehicle parameters
+3. Propulsion parameters
+4. Aerodynamic parameters
+5. Guidance and control gains
+6. Numerical integration settings
+7. Mission phase thresholds
+Each category has a well-defined scope.
+78
+
+--- PAGE 79 ---
+
+29.3 Physical Constants
+Physical constants are universal and should rarely change.
+Examples include:
+•Earth gravitational parameterµ
+•Earth mean radiusR E
+•Standard gravityg 0
+These constants should be defined in a dedicated configuration section and never overridden by
+mission logic.
+29.4 Vehicle Parameters
+Vehicle parameters describe intrinsic properties of the RLV.
+Examples include:
+•Dry mass
+•Propellant mass
+•Inertia tensor components
+•Reference areaA
+Vehicle parameters must be grouped under a single vehicle identifier to support multiple vehicle
+definitions.
+29.5 Propulsion Parameters
+Propulsion parameters define engine behavior.
+Examples include:
+•Maximum thrustT max
+•Specific impulseI sp
+•Throttle limits
+•Thrust ramp rates
+These parameters must be independent of guidance and control logic.
+79
+
+--- PAGE 80 ---
+
+29.6 Aerodynamic Parameters
+Aerodynamic parameters describe interaction with the atmosphere.
+Examples include:
+•Drag coefficientC D
+•Lift coefficient model parameters
+•Atmospheric scale heightH
+•Sea-level densityρ 0
+Phase-dependent aerodynamic models may be selected via configuration flags.
+29.7 Guidance and Control Parameters
+Guidance and control gains strongly affect stability and performance.
+Examples include:
+•Proportional gainK p
+•Derivative gainK d
+•Vertical descent gains
+•Blending altitude thresholds
+These parameters must be tunable without recompiling code.
+29.8 Numerical Integration Parameters
+Numerical settings control accuracy and performance.
+Examples include:
+•Time step ∆t
+•Integration method (Euler, RK4)
+•Tolerances for event detection
+Numerical parameters should be grouped separately from physical parameters.
+80
+
+--- PAGE 81 ---
+
+29.9 Mission Phase Thresholds
+Phase transition conditions must be configurable.
+Examples include:
+•Ascent-to-coast altitude threshold
+•Entry interface altitude
+•Touchdown tolerances
+Hard-coding phase thresholds is prohibited.
+29.10 Configuration File Structure
+Configuration files should be human-readable and machine-parseable.
+Recommended formats include:
+•YAML
+•JSON
+•TOML
+Nested structure is encouraged to reflect parameter hierarchy.
+29.11 Example Configuration Structure (Conceptual)
+An example conceptual structure is:
+simulation:
+timestep: 0.02
+integrator: RK4
+environment:
+mu: 3.986e14
+earth_radius: 6371000
+vehicle:
+mass_dry: ...
+inertia: ...
+propulsion:
+thrust_max: ...
+81
+
+--- PAGE 82 ---
+
+isp: ...
+guidance:
+ascent:
+h_switch: ...
+landing:
+v_tol: ...
+This example is illustrative only and not prescriptive.
+29.12 Configuration Validation
+At startup, all configuration parameters must be validated.
+Validation checks include:
+•Required parameters present
+•Parameter values within physical bounds
+•No conflicting definitions
+Invalid configuration must cause immediate termination.
+29.13 Immutability During Runtime
+Once the simulation begins:
+•Configuration values must not change
+•No adaptive tuning of gains is permitted unless explicitly enabled
+This ensures deterministic behavior.
+29.14 Run Identification and Logging
+Each simulation run must generate:
+•A unique run identifier
+•A snapshot of all configuration parameters
+These artifacts must be stored alongside simulation outputs.
+82
+
+--- PAGE 83 ---
+
+29.15 Reproducibility Guarantee
+Given:
+•Identical configuration files
+•Identical initial conditions
+•Identical code version
+the simulation must produce identical results within numerical tolerance.
+29.16 Developer Checklist
+Before releasing the simulation, verify:
+•No hard-coded mission parameters remain
+•All tunable values are externally configurable
+•Configuration snapshots are logged
+A simulation without reproducible configuration is not scientifically valid.
+30 Extensibility to High-Fidelity Effects and Future Enhancements
+This section defines a structured pathway for extending the baseline RLV simulation to higher-
+fidelity physical effects without breaking correctness, stability, or traceability.
+The core principle ismodular extensibility: new effects must be introduced as additive, well-
+isolated modules that integrate cleanly into the existing architecture.
+No high-fidelity feature may modify or bypass the core equations defined in earlier sections.
+30.1 Extensibility Philosophy
+All future enhancements must satisfy the following rules:
+•The global state vector structure remains unchanged unless explicitly extended with justifi-
+cation
+•New dynamics enter only through additional forces, torques, or state derivatives
+•Existing validation and failure checks remain active
+Backward compatibility with the baseline model must be preserved.
+83
+
+--- PAGE 84 ---
+
+30.2 Wind and Atmospheric Disturbances
+30.2.1 Physical Motivation
+Atmospheric winds introduce relative velocity between the vehicle and the air, affecting aerody-
+namic forces during ascent, reentry, and landing.
+30.2.2 Relative Velocity Modification
+With wind velocityv wind:
+vrel=v−v wind
+All aerodynamic forces must usev relinstead ofv.
+30.2.3 Wind Models
+Wind models may include:
+•Constant wind profiles
+•Altitude-dependent wind shear
+•Stochastic gust models
+Wind models must be configurable and deterministic unless randomness is explicitly enabled.
+30.3 Sensor Noise and State Estimation
+30.3.1 Purpose
+To support guidance and control realism, sensor noise and estimation errors may be introduced.
+30.3.2 Measurement Model
+Let the true state bexand the measured state bey:
+y=h(x) +ν
+whereνis measurement noise.
+30.3.3 Noise Characteristics
+Noise may be modeled as:
+•Gaussian white noise
+•Bias and drift terms
+Noise parameters must be configurable.
+84
+
+--- PAGE 85 ---
+
+30.3.4 State Estimation
+An estimator such as an Extended Kalman Filter (EKF) may be introduced:
+•True state evolves under physics
+•Guidance and control consume estimated state
+The estimator must not modify the true state.
+30.4 Flexible Body Dynamics
+30.4.1 Motivation
+At high dynamic pressure or for large vehicles, structural flexibility affects attitude and control.
+30.4.2 Modal Representation
+Flexible dynamics may be represented using modal coordinatesη:
+˙η=Aη+Bu
+whereurepresents excitation forces.
+30.4.3 Coupling with Rigid-Body Motion
+Flexible modes may introduce additional:
+•Apparent torques
+•Attitude perturbations
+These effects must be injected as additive torques in the rotational dynamics.
+30.5 Fuel Slosh Dynamics
+30.5.1 Physical Motivation
+Liquid propellant motion alters the effective center of mass and inertia tensor.
+30.5.2 Equivalent Mechanical Model
+Fuel slosh may be approximated as a pendulum or mass-spring-damper system:
+ms¨xs+cs˙xs+ksxs=F excitation
+85
+
+--- PAGE 86 ---
+
+30.5.3 Coupling Effects
+Slosh dynamics affect:
+•Torque about the center of mass
+•Effective inertia tensor
+These effects must be applied as additional torques and inertia perturbations.
+30.6 Thrust Vector Control and Misalignment
+30.6.1 Misalignment Modeling
+Thrust misalignment introduces off-axis force components.
+Letδθdenote misalignment angles:
+ˆtactual =R(δθ) ˆtcmd
+30.6.2 Resulting Torque
+Misalignment generates torque:
+τthrust =rlever×F thrust
+This torque must be included in rotational dynamics.
+30.7 Plasma and Communication Blackout Effects
+30.7.1 Context
+During hypersonic reentry, plasma formation may disrupt communication and sensing.
+30.7.2 Simulation Treatment
+Plasma effects may be modeled as:
+•Loss of external measurements
+•Increased sensor noise
+Guidance and control must rely on onboard state propagation during blackout.
+30.8 Monte Carlo and Dispersion Analysis
+30.8.1 Purpose
+Monte Carlo analysis evaluates sensitivity to uncertainties.
+86
+
+--- PAGE 87 ---
+
+30.8.2 Perturbation Sources
+Perturbations may include:
+•Initial condition uncertainty
+•Atmospheric variability
+•Thrust and mass uncertainty
+30.8.3 Execution Rules
+Each Monte Carlo run must:
+•Use a unique configuration snapshot
+•Produce independent logs
+Statistical results must be derived post-simulation.
+30.9 Multi-Body and Staging Extensions
+30.9.1 Use Cases
+Advanced missions may include:
+•Staging events
+•Payload separation
+•Docking or capture
+30.9.2 State Vector Extension
+Multi-body dynamics require extending the state vector to include multiple bodies.
+Such extensions must:
+•Preserve existing state definitions
+•Clearly define interaction forces
+30.10 Extension Validation Requirement
+Each added high-fidelity feature must:
+•Include unit-level verification
+•Demonstrate convergence to baseline when disabled
+No extension may be considered complete without validation.
+87
+
+--- PAGE 88 ---
+
+30.11 Backward Compatibility Guarantee
+When all high-fidelity features are disabled:
+•The simulation must reduce exactly to the baseline model
+•Numerical results must match baseline within tolerance
+This guarantee is mandatory.
+30.12 Developer Checklist
+Before integrating any new feature, verify:
+•Clear physical justification exists
+•Integration points are well-defined
+•Validation tests are provided
+Extensibility without discipline leads to unmaintainable systems.
+31 Final Summary, Developer Handoff, and Usage Protocol
+This section formally concludes the RLV simulation specification and defines how the document is
+to be used by developers, researchers, and reviewers.
+This chapter is not conceptual. It establishes binding usage rules and handoff protocols that
+preserve scientific integrity, reproducibility, and long-term maintainability.
+31.1 Scope of the Document
+This document provides a complete, end-to-end, physics-consistent specification for a reusable
+launch vehicle (RLV) simulation, including:
+•Rigid-body translational and rotational dynamics
+•Quaternion-based attitude representation
+•Guidance and control logic across all mission phases
+•Propulsion, aerodynamics, gravity, and environmental models
+•Phase management, failure handling, and abort logic
+•Verification, validation, and numerical stability requirements
+•Configuration management and extensibility pathways
+No external assumptions are required to implement the baseline model.
+88
+
+--- PAGE 89 ---
+
+31.2 Authoritative Reference Rule
+This document is theauthoritative referencefor the simulation.
+In the event of conflict:
+1. This document overrides code comments
+2. This document overrides developer intuition
+3. This document overrides legacy implementations
+Any deviation from this specification must be explicitly documented and justified.
+31.3 Developer Handoff Protocol
+Upon handoff to a developer or development team, the following steps must be performed:
+1. Provide this document as a frozen reference
+2. Identify the target programming language and environment
+3. Define the initial configuration files
+4. Agree on validation milestones
+No coding should begin without agreement on these steps.
+31.4 Implementation Order Mandate
+Developers must implement the simulation in the following order:
+1. Mathematical utilities (vectors, matrices, quaternions)
+2. State representation and integration framework
+3. Rotational dynamics and attitude propagation
+4. Translational dynamics with gravity only
+5. Thrust and mass depletion
+6. Aerodynamic forces
+7. Guidance logic
+8. Control laws
+9. Phase management
+89
+
+--- PAGE 90 ---
+
+10. Failure handling
+11. Validation tests
+Skipping or reordering these steps is prohibited.
+31.5 Incremental Validation Requirement
+After each implementation stage:
+•Unit tests must pass
+•Subsystem behavior must be verified
+•Regression tests must be executed
+Progression without validation is not allowed.
+31.6 Usage as an Academic Artifact
+This document is suitable for inclusion as:
+•A PhD or Master’s thesis appendix
+•A methods section in a simulation-focused paper
+•Internal laboratory or institutional standard
+When used academically, citations should reference this document as the primary source of
+simulation methodology.
+31.7 Usage as an Engineering Artifact
+For engineering use, this document functions as:
+•A system requirements specification
+•A developer onboarding manual
+•A verification and audit reference
+Engineering changes must follow formal change-control procedures.
+90
+
+--- PAGE 91 ---
+
+31.8 Change Control Policy
+Any modification to:
+•Equations
+•Phase logic
+•State definitions
+requires:
+1. A written change proposal
+2. Justification grounded in physics or requirements
+3. Updated validation evidence
+Uncontrolled changes invalidate results.
+31.9 Reproducibility and Archiving
+Every simulation campaign must archive:
+•Code version identifier
+•Configuration files
+•Initial conditions
+•Output logs
+Without these artifacts, results are not reproducible and must not be reported.
+31.10 Baseline Fidelity Statement
+The baseline model defined here is:
+•Physically consistent
+•Numerically stable when implemented correctly
+•Sufficient for trajectory, guidance, and control studies
+It is not intended to replace high-fidelity CFD or structural solvers, but to serve as a trusted
+backbone.
+91
+
+--- PAGE 92 ---
+
+31.11 Extension Responsibility
+Any extension beyond the baseline model carries responsibility to:
+•Preserve baseline correctness
+•Demonstrate convergence to baseline behavior
+•Provide independent validation
+Extensions without validation are not admissible.
+31.12 Final Developer Checklist
+Before declaring the simulator complete, verify:
+•All equations are implemented exactly once
+•All phases execute in correct order
+•All failure modes are detectable
+•All validation tests pass
+•Results are reproducible
+Only then may the simulation be considered complete.
+31.13 Closing Statement
+This document defines not just a simulation, but adisciplineof implementation.
+If followed faithfully, it enables:
+•Trustworthy results
+•Clear communication between physicists and developers
+•Long-term extensibility without loss of rigor
+Deviation from this discipline compromises the entire effort.
+This concludes the specification.
+32 Developer Implementation Guide and Execution Protocol
+This section provides a precise, step-by-step implementation guide for translating the mathematical
+and logical specifications of this document into executable software.
+This chapter is procedural rather than theoretical. It defineshowthe simulation must be
+implemented, notwhythe equations exist.
+No physics is introduced in this section.
+92
+
+--- PAGE 93 ---
+
+32.1 Implementation Philosophy
+The implementation must satisfy the following principles:
+•Every equation in this document appears explicitly in code
+•Each equation is implemented exactly once
+•The simulation is a single continuous time integration
+•Mission phases modify logic, not state structure
+The developer’s role is translation, not interpretation.
+32.2 Mandatory Implementation Order
+The simulation must be implemented in the following strict order. Deviations are not permitted.
+1. Mathematical primitives
+2. State representation
+3. Rotational kinematics and dynamics
+4. Translational kinematics and dynamics
+5. Force models
+6. Guidance logic
+7. Control laws
+8. Phase management
+9. Numerical integration
+10. Validation and failure detection
+Each stage must be validated before proceeding to the next.
+32.3 Mathematical Primitive Layer
+The mathematical layer provides reusable operations and must contain:
+•Vector norm, dot product, cross product
+•Skew-symmetric matrix construction
+•Quaternion multiplication and conjugation
+93
+
+--- PAGE 94 ---
+
+•Quaternion normalization
+•Quaternion-to-rotation-matrix conversion
+No dynamics module may implement its own mathematical operations.
+32.4 State Representation
+The global state vector must be represented explicitly as:
+x(t) =
+r(t)
+v(t)
+q(t)
+ω(t)
+m(t)
+
+The state container must:
+•Store values only
+•Perform no computations
+•Remain unchanged across mission phases
+Derived quantities such as altitude or speed must not be stored in the state.
+32.5 Rotational Dynamics Implementation
+At each time step, rotational dynamics must be evaluated as follows:
+1. Compute control and disturbance torques
+2. Compute angular acceleration using Euler’s equation
+3. Integrate angular velocity
+4. Integrate quaternion using quaternion kinematics
+5. Normalize quaternion
+Under no circumstances may rotation matrices be integrated directly.
+94
+
+--- PAGE 95 ---
+
+32.6 Translational Dynamics Implementation
+Translational dynamics must follow this exact sequence:
+1. Compute all external forces
+2. Sum forces into a single inertial-frame vector
+3. Compute translational acceleration using Newton’s second law
+4. Integrate velocity
+5. Integrate position
+No force may modify velocity or position directly.
+32.7 Force Assembly Protocol
+Forces must be computed independently and combined additively:
+Ftotal=F grav+F thrust +F drag+F lift
+Each force must:
+•Be computed in a dedicated module
+•Accept only state and configuration inputs
+•Produce a force vector in the inertial frame
+Force modules must not access or modify the global state.
+32.8 Guidance Logic Implementation
+Guidance modules determine commanded quantities only.
+Guidance outputs may include:
+•Desired thrust direction
+•Desired attitude quaternion
+•Desired velocity or acceleration profiles
+Guidance logic must not:
+•Apply forces
+•Apply torques
+•Modify the state vector
+95
+
+--- PAGE 96 ---
+
+32.9 Control Law Implementation
+Control laws convert guidance commands into actuator commands.
+For attitude control:
+•Compute quaternion error
+•Compute angular velocity error
+•Apply proportional–derivative torque law
+•Enforce actuator saturation
+Control modules must output commands only and must not apply dynamics directly.
+32.10 Phase Management Implementation
+Mission phase logic must be implemented as a finite-state machine.
+Phase logic must:
+•Observe the current state
+•Evaluate termination conditions
+•Switch phases without altering state variables
+Phase transitions are event-driven, not time-driven.
+32.11 Numerical Integration Protocol
+All state variables must be integrated using the same numerical integrator.
+The integrator must:
+•Accept current state and state derivatives
+•Advance state by ∆t
+•Preserve numerical consistency
+After each integration step, quaternion normalization is mandatory.
+32.12 Global Simulation Loop
+The simulation loop must execute the following steps in order:
+1. Determine active mission phase
+2. Evaluate guidance logic
+96
+
+--- PAGE 97 ---
+
+3. Evaluate control laws
+4. Compute forces and torques
+5. Compute state derivatives
+6. Integrate state forward in time
+7. Normalize quaternion
+8. Validate state invariants
+9. Evaluate phase termination conditions
+10. Log data
+Reordering these steps invalidates the simulation.
+32.13 Validation and Safety Enforcement
+At every time step, the following invariants must be enforced:
+•Quaternion norm∥q∥ ≈1
+•Massm >0
+•All state variables finite
+Violation of any invariant requires immediate simulation termination.
+32.14 Developer Responsibility Statement
+Developers implementing this simulation are responsible for:
+•Faithful translation of equations into code
+•Preservation of state continuity
+•Verification against validation criteria
+Introducing undocumented logic or modifying equations without justification invalidates all
+simulation results.
+97
+
+--- PAGE 98 ---
+
+32.15 Implementation Completion Criteria
+The implementation is considered complete only when:
+•All mission phases execute successfully
+•Validation tests pass for all phases
+•Results are reproducible under identical configurations
+Only after these conditions are met may the simulator be used for analysis or publication.
+32.16 11.12 Advanced: Time-Varying Inertia Dynamics
+The standard Euler equations assume a constant inertia tensor. However, for an RLV consuming
+significant propellant mass ˙m, the inertia tensorIchanges with time ( ˙I̸= 0).
+To maintain rigor during high-thrust phases, the rotational dynamics equation must explicitly
+account for the rate of change of angular momentum:
+d
+dt(Iω) =I˙ω+ ˙Iω(1)
+Substituting into Euler’s equation yields the rigorous form:
+I˙ω+ω×(Iω) + ˙Iω=τ(2)
+Solving for angular acceleration:
+˙ω=I−1(τ−ω×(Iω)− ˙Iω) (3)
+The term ˙Iωacts as a ”jet damping” or ”mass-shift” torque. Neglecting this term when ˙mis
+large may lead to errors in control authority prediction.
+32.17 11.13 Inertia Tensor Update
+The inertia tensor must be updated at every time step based on the current propellant mass
+distribution. A simplified linear model may be used:
+I(t) =I dry+mprop(t)
+mprop,initial(Iwet−Idry) (4)
+whereI dryandI wetare configuration parameters.
+32.18 13.11 Advanced: J2 Zonal Harmonic Perturbation
+The central gravity model assumes a spherical Earth. In reality, the Earth is oblate (bulging at the
+equator). This non-sphericity is dominated by theJ 2zonal harmonic.
+98
+
+--- PAGE 99 ---
+
+TheJ 2perturbation acceleration vectora J2in the inertial frame is defined as:
+aJ2=3µJ 2R2
+E
+2r5
+x(5z2
+r2−1)
+y(5z2
+r2−1)
+z(5z2
+r2−3)
+(5)
+where:
+•J2≈1.0826×10−3is the second dynamic form factor.
+•x, y, zare the components of position vectorr.
+•r=||r||.
+This term is essential for predicting orbital nodal regression and accurate reentry interface
+targeting. It must be added to the total gravitational acceleration:
+agrav=−µ
+r3r+a J2 (6)
+32.19 15.14 Earth Rotation Effect on Relative Velocity
+[span 3](start span)Section15.2[span 3](end span)assumesastationaryatmosphere.Forarigoroussimulation, theatmosphereisassumedtorotatewiththeEarth.TherelativevelocityvectormusteffectivelyaccountfortheEarth′srotationratevectorω E:
+vrel=vinertial −ωE×r(7)
+where:
+ωE=
+0
+0
+7.2921×10−5
+rad/s (8)
+This correction is mandatory for accurate load estimation, as it can alter relative velocity by
+up to 460 m/s depending on latitude.
+32.20 15.15 Aerodynamic Moments and Static Stability
+In addition to drag and lift forces, the interaction of the aerodynamic Center of Pressure (CP) and
+the vehicle Center of Mass (CM) generates an aerodynamic torque.
+Letr cpbe the position of the CP andr cmbe the position of the CM (both in body coordinates).
+The aerodynamic torque is:
+τaero= (r cp−rcm)×(F(b)
+drag+F(b)
+lift) (9)
+WhereF(b)denotes forces transformed into the body frame.
+99
+
+--- PAGE 100 ---
+
+32.21 15.15.1 Static Margin
+The longitudinal distancex cp−xcmdefines the static margin.
+•Ifx cp< xcm(CP behind CM), the vehicle is aerodynamically stable.
+•Ifx cp> xcm(CP ahead of CM), the vehicle is unstable and requires active control.
+Sincer cmchanges with propellant depletion, this torque must be re-evaluated at every time
+step.
+32.22 13.12 Advanced: WGS84 Geodetic Altitude
+The spherical altitude calculationh=||r|| −R Eis insufficient for precision landing. The Earth is
+modeled as an oblate spheroid defined by the WGS84 standard:
+•Equatorial radiusa= 6378137.0 m
+•Flattening factorf= 1/298.257223563
+The geodetic altitudeh(height above the ellipsoid) must be calculated using an iterative algo-
+rithm or a closed-form approximation. A recommended closed-form approximation forhis:
+p=p
+x2+y2 (10)
+θ= arctanz·a
+p·b
+(11)
+ϕ= arctanz+e′2bsin3θ
+p−e2acos3θ
+(12)
+h=p
+cosϕ−N(ϕ) (13)
+where:
+•b=a(1−f) is the semi-minor axis.
+•e2= 1−b2/a2is the first eccentricity squared.
+•e′2=a2/b2−1 is the second eccentricity squared.
+•N(ϕ) =a/p
+1−e2sin2ϕis the prime vertical radius of curvature.
+This model ensures that ”zero altitude” corresponds to the actual ellipsoidal surface of the
+Earth, regardless of latitude.
+32.23 25.10 Advanced: Numerical Benchmark Cases (”Golden Vectors”)
+To guarantee solver accuracy, the simulation must reproduce the following analytical benchmark
+cases to within double-precision tolerance (<10−12).
+100
+
+--- PAGE 101 ---
+
+32.23.1 25.10.1 Case A: Pure Gravity (Circular Orbit)
+Initial State (t= 0):
+•r= [7000000,0,0]Tm
+•v= [0,p
+µ/7000000,0]T≈[0,7546.05328,0]Tm/s
+•q= [1,0,0,0]T
+•ω= [0,0,0]T
+Expected State (t= 100s):Using exact Keplerian propagation (mean anomaly propagation):
+•||r||must equal 7000000 m exactly (energy conservation).
+•r·vmust equal 0 (circularity check).
+32.23.2 25.10.2 Case B: Rotational Kinematics (Coning Motion)
+Initial State: q= [1,0,0,0]T,ω= [0.1,1.0,0]Trad/s (constant).
+Expected State (t= 1.0s):The analytical solution for quaternion evolution with constantωis:
+q(t) =
+cos||ω||t
+2
+,ω
+||ω||sin||ω||t
+2T
+(14)
+The simulator output must match this analytical vector to within 10−15. Deviations indicate
+integration order errors. Software Architecture and Module Contracts
+33 Purpose and Scope
+This chapter defines thesoftware architecturerequired to implement the Reusable Launch Ve-
+hicle (RLV) simulation described in this document.
+While previous chapters defined the mathematical and physical laws governing the vehicle, this
+chapter defines:
+•How the simulation software must be structured
+•How responsibilities are divided between modules
+•What data each module may read or write
+•The execution order and interaction rules
+This chapter is written for software developers and system integrators. It introduces no new
+physics.
+101
+
+--- PAGE 102 ---
+
+34 Architectural Design Principles
+The simulation architecture shall obey the following principles:
+1.Single Source of Truth: There shall exist exactly one authoritative state vector.
+2.Separation of Concerns: Guidance, control, dynamics, and environment modeling shall be
+implemented as separate modules.
+3.Unidirectional Data Flow: Commands flow downward; state flows upward. No circular
+dependencies are permitted.
+4.Deterministic Execution: Given identical initial conditions and inputs, the simulation
+shall produce identical outputs.
+5.Phase-Independence of State: Mission phases modify logic, not the definition of the state
+vector.
+Violation of these principles invalidates the simulation.
+35 Global State Ownership
+At all times, the simulation maintains a single global state vector:
+x(t) =
+r(t)
+v(t)
+q(t)
+ω(t)
+m(t)
+
+35.1 State Ownership Rule
+•TheState Propagatormodule is the sole writer of the state.
+•All other modules may read the state but shall not modify it.
+•No module may maintain hidden or duplicated copies of the state.
+Any module violating this rule introduces undefined behavior.
+36 Module Decomposition
+The simulation shall be decomposed into the following logical modules.
+102
+
+--- PAGE 103 ---
+
+36.1 State Propagator
+Responsibilities:
+•Numerical integration of the state vector
+•Quaternion normalization enforcement
+•Time advancement
+Inputs:
+•Total force vector
+•Total torque vector
+•Mass flow rate
+Outputs:
+•Updated global state vector
+36.2 Environment Model
+Responsibilities:
+•Gravity computation
+•Atmospheric density evaluation
+•Reference frame definitions
+Constraints:
+•Must not depend on mission phase
+•Must not modify state
+36.3 Force and Moment Model
+Responsibilities:
+•Compute thrust, drag, lift, and gravity forces
+•Assemble total force vector
+•Assemble total torque vector
+Inputs:
+•Current state
+•Control outputs
+•Environment outputs
+103
+
+--- PAGE 104 ---
+
+36.4 Guidance Module
+Responsibilities:
+•Determine desired vehicle orientation
+•Determine desired thrust direction
+•Define mission-phase-specific objectives
+Constraints:
+•Guidance shall not apply forces or torques
+•Guidance shall not modify the state
+36.5 Control Module
+Responsibilities:
+•Track guidance commands
+•Generate control torques
+Inputs:
+•Current state
+•Guidance commands
+Outputs:
+•Commanded torque vector
+36.6 Phase Manager
+Responsibilities:
+•Determine the active mission phase
+•Evaluate phase termination conditions
+Constraints:
+•Phase transitions shall be event-driven only
+•Phase changes shall not modify the state vector
+104
+
+--- PAGE 105 ---
+
+37 Execution Order Contract
+At each simulation time step, modules shall be executed in the following strict order:
+1. Phase Manager
+2. Guidance Module
+3. Control Module
+4. Environment Model
+5. Force and Moment Model
+6. State Propagator
+7. Data Logger
+Any deviation from this order is prohibited.
+38 Data Logging and Observability
+A dedicated logging module shall record:
+•State vector history
+•Forces and torques
+•Guidance commands
+•Active mission phase
+Logging shall be read-only and shall not influence simulation behavior.
+39 Architectural Invariants
+The following conditions must hold at all times:
+•Quaternion norm equals unity
+•Mass remains positive
+•No NaN or infinite values appear in the state
+Violation of any invariant shall trigger immediate simulation termination.
+105
+
+--- PAGE 106 ---
+
+40 Rationale for Architectural Separation
+This architecture ensures:
+•Independent verification of physics and software
+•Safe extensibility to higher-fidelity models
+•Compatibility with industry certification workflows
+All subsequent additions to this simulation shall conform to the architecture defined in this
+chapter. Actuator Dynamics, Saturation, and Physical Realizability
+41 Purpose and Motivation
+Previous chapters defined how guidance and control algorithms generatecommandedforces and
+torques. In a real vehicle, commands are not applied instantaneously or without limitation.
+This chapter introduces actuator models that mediate between:
+•Control commands (idealized)
+•Physically realizable forces and torques
+No guidance or control laws are modified. This chapter exists solely to enforce physical realism.
+42 Fundamental Actuator Principles
+All actuators obey the following universal constraints:
+1. Finite response time
+2. Finite magnitude limits
+3. Finite rate of change
+Any simulation that violates these constraints is non-physical.
+43 Actuator Abstraction
+Each actuator is modeled as a dynamic system with:
+•Commanded inputu cmd
+•Actual outputu
+The actuator dynamics determine howuevolves in time.
+106
+
+--- PAGE 107 ---
+
+44 First-Order Actuator Dynamics
+The baseline actuator model is a first-order lag:
+˙u=1
+τ(ucmd−u)
+where:
+•ucmdis the commanded actuator value
+•uis the realized actuator output
+•τ >0 is the actuator time constant
+This equation applies independently to each actuator channel.
+44.1 Physical Interpretation
+•Smallτ: fast actuator response
+•Largeτ: sluggish actuator response
+Instantaneous actuation corresponds toτ→0, which is physically unrealizable.
+45 Magnitude Saturation
+All actuators have finite authority.
+The actuator output shall satisfy:
+umin≤u≤u max
+Saturation is enforced as:
+u←clip(u, u min, umax)
+Magnitude saturation must be appliedafteractuator dynamics.
+46 Rate Limiting
+Actuators cannot change output arbitrarily fast.
+The actuator rate constraint is:
+|˙u| ≤˙u max
+107
+
+--- PAGE 108 ---
+
+In discrete time:
+u(t+ ∆t) =u(t) + clip( ˙u,−˙u max,˙umax)∆t
+Rate limiting prevents unphysical impulse-like behavior.
+47 Thrust Actuator Model
+47.1 Throttle Command
+Let:
+•δcmd∈[0,1] be the commanded throttle
+•δbe the realized throttle
+Throttle dynamics follow:
+˙δ=1
+τT(δcmd−δ)
+47.2 Thrust Mapping
+The realized thrust magnitude is:
+T=δ T max
+with:
+0≤δ≤1
+47.3 Engine Shutdown Constraint
+If propellant mass reaches zero:
+δcmd= 0⇒T= 0
+No actuator dynamics may override propellant depletion.
+48 Thrust Vector Control (Gimbal) Actuators
+48.1 Gimbal Angles
+Let the gimbal deflection angles be:
+108
+
+--- PAGE 109 ---
+
+θg="
+θx
+θy#
+Each gimbal channel obeys first-order dynamics with saturation.
+48.2 Gimbal Torque Generation
+Gimbaled thrust produces torque:
+τthrust =rlever×F(b)
+thrust
+wherer leveris the thrust lever arm in the body frame.
+49 Reaction Control System (RCS) Actuators
+RCS actuators are modeled as discrete or quasi-continuous torque generators.
+49.1 RCS Torque Output
+Letτ rcs,cmd be the commanded RCS torque.
+The realized torque is:
+τrcs= clip(τ rcs,cmd ,−τrcs,max , τrcs,max )
+Optional actuator lag may be applied.
+50 Total Applied Torque Assembly
+The total applied torque is:
+τtotal=τ(gimbal)
+control+τ(rcs)
+control+τother
+Only realized actuator outputs may contribute toτ total.
+51 Execution Order Constraint
+At each simulation step:
+1. Control computesu cmd
+2. Actuator dynamics updateu
+3. Saturation and rate limits are applied
+109
+
+--- PAGE 110 ---
+
+4. Forces and torques are computed fromu
+Control commands shall never bypass actuator models.
+52 Numerical Stability Considerations
+To ensure numerical robustness:
+•Actuator states shall be finite at all times
+•Time constants shall satisfyτ≫∆t
+•Saturation shall be enforced deterministically
+53 Developer Validation Checklist
+Before proceeding to navigation modeling, verify:
+•Step throttle commands produce smooth thrust ramps
+•Saturation limits are never violated
+•Control authority loss produces degraded performance
+•Actuator lag introduces realistic phase delay
+Only after these checks pass may sensor and navigation models be introduced. Sensor Models
+and Navigation State Estimation
+54 Purpose and Scope
+All previous chapters assumed direct access to the true vehicle state. This assumption is physically
+invalid.
+Real vehicles do not observe their true state. They observe noisy, delayed, and biased sensor
+measurements.
+This chapter introduces:
+•Sensor measurement models
+•Measurement uncertainty and bias
+•A navigation system that estimates state from sensors
+Guidance and control shall operate exclusively on estimated state.
+110
+
+--- PAGE 111 ---
+
+55 Separation of Truth and Estimated State
+Two distinct state vectors are defined:
+55.1 True State (Simulation Truth)
+The true state evolves according to physical laws:
+x(t) =
+r
+v
+q
+ω
+m
+
+This state is maintained internally by the simulation and is never directly accessible to guidance
+or control.
+55.2 Estimated State (Navigation Output)
+The navigation system produces an estimated state:
+ˆx(t) =
+ˆr
+ˆv
+ˆq
+ˆω
+
+Mass is not estimated and is treated as known.
+56 Sensor Abstraction
+Each sensor provides a measurement of a physical quantity with error.
+A generic sensor measurement is modeled as:
+y=h(x) +b+η
+where:
+•h(x) is the measurement function
+•bis a slowly varying bias
+•ηis zero-mean stochastic noise
+111
+
+--- PAGE 112 ---
+
+57 Inertial Measurement Unit (IMU)
+The IMU provides measurements of angular velocity and specific force.
+57.1 Gyroscope Model
+The gyroscope measurement is:
+ωmeas=ω+b ω+ηω
+where:
+•bωis gyroscope bias
+•ηωis white noise
+Bias evolves as a random walk:
+˙bω=ηb
+57.2 Accelerometer Model
+The accelerometer measures specific force:
+ameas=RT(q)(a−g) +b a+ηa
+where:
+•gis gravitational acceleration
+•bais accelerometer bias
+58 Global Navigation Satellite System (GNSS)
+GNSS provides position and velocity measurements at a lower update rate.
+58.1 GNSS Measurement Model
+rmeas=r+η r
+vmeas=v+η v
+GNSS measurements may be intermittently unavailable.
+112
+
+--- PAGE 113 ---
+
+59 Navigation Filter Architecture
+State estimation is performed using a recursive Bayesian filter.
+This document adopts an Extended Kalman Filter (EKF) formulation.
+59.1 Navigation State Vector
+The EKF state is:
+xnav=
+r
+v
+q
+bω
+ba
+
+59.2 Process Model
+The process model propagates state using IMU data:
+˙xnav=f(x nav, uimu)
+whereu imuconsists of measured angular velocity and acceleration.
+60 Quaternion Propagation in Navigation
+Orientation is propagated using measured angular velocity:
+˙q=1
+2"
+0−ωT
+meas
+ωmeas −[ωmeas]×#
+q
+Bias-corrected angular velocity is used.
+Quaternion normalization is enforced after propagation.
+61 Measurement Update
+When a measurementy kbecomes available, the EKF update is applied:
+K=PHT(HPHT+R)−1
+ˆx+= ˆx−+K(y k−h(ˆx−))
+113
+
+--- PAGE 114 ---
+
+P+= (I−KH)P−
+Measurement updates occur asynchronously.
+62 Navigation Output Contract
+The navigation module outputs:
+•Estimated position ˆr
+•Estimated velocity ˆv
+•Estimated attitude ˆq
+•Estimated angular velocity ˆω
+Only these quantities may be consumed by guidance and control.
+63 Failure and Degradation Modes
+The navigation system must tolerate:
+•GNSS outages
+•Sensor bias growth
+•Increased noise during high dynamics
+If estimation uncertainty exceeds thresholds, guidance shall enter a degraded or safe mode.
+64 Execution Order Integration
+At each simulation time step:
+1. True state is propagated
+2. Sensor measurements are generated
+3. Navigation filter propagates state
+4. Measurement updates are applied
+5. Estimated state is published
+True state shall never bypass navigation.
+114
+
+--- PAGE 115 ---
+
+65 Developer Validation Checklist
+Before proceeding to robustness and fault handling, verify:
+•Navigation tracks truth within expected error bounds
+•Biases converge or remain bounded
+•GNSS dropout degrades accuracy gracefully
+•Control remains stable under estimation error
+Only after these checks pass may fault containment be introduced. Numerical Robustness, Fault
+Detection, and Safe-Mode Containment
+66 Purpose and Rationale
+High-fidelity simulations must remain numerically stable under:
+•Aggressive maneuvers
+•Sensor noise and bias
+•Actuator saturation
+•Long-duration integration
+This chapter defines mandatory safeguards that prevent:
+•Numerical divergence
+•Silent corruption of state
+•Physically impossible behavior
+These safeguards do not alter correct trajectories. They activate only in failure conditions.
+67 Fundamental Robustness Principles
+The simulation shall obey the following principles:
+1. Invalid states shall be detected immediately
+2. No invalid state shall propagate silently
+3. Recovery behavior shall be deterministic
+4. Safety overrides guidance and control
+115
+
+--- PAGE 116 ---
+
+68 State Validity Constraints
+At every time step, the following conditions must be satisfied.
+68.1 Finite-Value Enforcement
+All state components must satisfy:
+|xi|<∞
+If any component becomes NaN or infinite, the simulation shall abort.
+68.2 Quaternion Integrity
+The attitude quaternion must satisfy:
+∥q∥= 1±ϵ q
+If∥q∥deviates beyond tolerance:
+•Renormalization is attempted once
+•If violation persists, a fault is declared
+68.3 Mass Positivity
+Vehicle mass must satisfy:
+m >0
+Negative or zero mass constitutes a fatal error.
+69 Kinematic Consistency Checks
+69.1 Velocity Magnitude Limits
+Velocity magnitude shall satisfy:
+∥v∥ ≤v max
+wherev maxis chosen above the maximum physically plausible value.
+116
+
+--- PAGE 117 ---
+
+69.2 Angular Velocity Limits
+Angular velocity shall satisfy:
+∥ω∥ ≤ω max
+Exceeding this limit indicates actuator or integration failure.
+70 Force and Torque Sanity Checks
+70.1 Force Bounds
+Each force component shall satisfy:
+|Fi| ≤F max
+70.2 Torque Bounds
+Each torque component shall satisfy:
+|τi| ≤τ max
+Violations trigger immediate containment actions.
+71 Navigation Health Monitoring
+The navigation system shall expose a covariance matrixP.
+If:
+trace(P)> P max
+then navigation is considered degraded.
+72 Safe-Mode Definition
+Safe-mode is a predefined degraded operational state designed to:
+•Minimize control activity
+•Prevent further divergence
+•Preserve numerical stability
+117
+
+--- PAGE 118 ---
+
+73 Safe-Mode Entry Conditions
+Safe-mode shall be entered if any of the following occur:
+•Navigation divergence
+•Persistent actuator saturation
+•State validity violation
+74 Safe-Mode Behavior
+Upon entering safe-mode:
+•Guidance commands are frozen
+•Lateral thrust commands are zeroed
+•Attitude is commanded toward passive stability
+•Throttle is reduced to minimum required level
+Safe-mode behavior shall be deterministic and reversible.
+75 Watchdog Timers
+Critical subsystems (navigation, actuators, integrator) shall be monitored by watchdog timers.
+Failure to update within a specified time interval constitutes a fault.
+76 Fault Escalation Policy
+Faults are classified as:
+•Recoverable
+•Non-recoverable
+Non-recoverable faults terminate the simulation immediately.
+118
+
+--- PAGE 119 ---
+
+77 Logging and Fault Traceability
+Upon fault detection, the following must be logged:
+•Fault type
+•Time of occurrence
+•State snapshot
+•Active mission phase
+Fault logs shall be immutable.
+78 Execution Order Integration
+Robustness checks shall be executed:
+•After state integration
+•Before phase transition logic
+Safety overrides shall preempt all other logic.
+79 Developer Validation Checklist
+Before introducing verification and Monte-Carlo analysis, verify:
+•NaN injection causes immediate abort
+•Navigation divergence triggers safe-mode
+•Force spikes are clipped and flagged
+•Safe-mode stabilizes the system
+Only after these checks pass may verification and statistical analysis be performed. Verification,
+Validation, and Monte-Carlo Analysis Framework
+80 Purpose and Philosophy
+Correct equations alone do not establish correctness of a simulation. A simulation is considered
+trustworthy only when its behavior has been systematically verified and validated.
+This chapter defines a formal framework for:
+119
+
+--- PAGE 120 ---
+
+•Verification of mathematical and numerical correctness
+•Validation of physical behavior
+•Statistical robustness assessment via Monte-Carlo analysis
+No assumptions are made regarding implementation language or platform.
+81 Definitions
+81.1 Verification
+Verification answers the question:
+“Is the simulation implemented correctly according to its specification?”
+Verification is independent of physical realism.
+81.2 Validation
+Validation answers the question:
+“Does the simulation represent physical reality to an acceptable degree?”
+Validation depends on physical interpretation and expected behavior.
+82 Verification Strategy
+Verification shall be performed at three levels:
+1. Unit-level verification
+2. Subsystem-level verification
+3. System-level verification
+83 Unit-Level Verification
+Each mathematical component shall be verified independently.
+83.1 Quaternion Kinematics
+Verification cases include:
+•Zero angular velocity⇒constant attitude
+•Constant angular velocity⇒uniform rotation
+•Quaternion norm preservation within tolerance
+120
+
+--- PAGE 121 ---
+
+83.2 Translational Dynamics
+Verification cases include:
+•Zero force⇒constant velocity
+•Constant force⇒linear velocity growth
+83.3 Actuator Models
+Verification cases include:
+•Step command produces exponential response
+•Saturation limits are never violated
+•Rate limits bound output slopes
+84 Subsystem-Level Verification
+Subsystem verification ensures correct interaction between modules.
+84.1 Navigation Subsystem
+Verification cases include:
+•Zero-noise sensors⇒estimated state matches truth
+•Biased sensors⇒bias estimates converge
+•GNSS dropout⇒bounded estimation error
+84.2 Guidance and Control Subsystem
+Verification cases include:
+•Step attitude commands converge without oscillation
+•Control torque respects actuator limits
+•Safe-mode overrides guidance correctly
+85 System-Level Verification
+System-level verification evaluates full mission execution.
+121
+
+--- PAGE 122 ---
+
+85.1 Nominal Mission Simulation
+A nominal mission shall satisfy:
+•No numerical faults
+•Continuous state evolution
+•Correct phase transitions
+85.2 Energy and Momentum Consistency
+During unforced phases:
+•Orbital energy remains constant
+•Angular momentum remains constant
+86 Validation Strategy
+Validation is performed using physically expected behaviors.
+86.1 Ascent Validation
+Expected behaviors include:
+•Gravity turn emerges naturally
+•Maximum dynamic pressure occurs in dense atmosphere
+86.2 Orbital Validation
+Expected behaviors include:
+•Circular orbit yields constant altitude
+•Eccentricity remains bounded after insertion
+86.3 Reentry Validation
+Expected behaviors include:
+•Velocity decreases monotonically
+•Dynamic pressure peaks then decreases
+122
+
+--- PAGE 123 ---
+
+87 Monte-Carlo Analysis Framework
+Monte-Carlo analysis evaluates robustness under uncertainty.
+87.1 Uncertainty Sources
+The following parameters shall be randomized:
+•Initial mass
+•Atmospheric density scale height
+•Sensor noise and bias
+•Actuator time constants
+87.2 Monte-Carlo Execution
+For each run:
+1. Sample parameters from defined distributions
+2. Execute full mission simulation
+3. Record terminal metrics
+87.3 Statistical Metrics
+Metrics shall include:
+•Orbit insertion success rate
+•Landing velocity distributions
+•Maximum dynamic pressure
+88 Acceptance Criteria
+The simulation is considered acceptable if:
+•No catastrophic failures occur in nominal runs
+•Monte-Carlo success rate exceeds predefined threshold
+•Statistical dispersions remain bounded
+Acceptance thresholds shall be mission-dependent and configurable.
+123
+
+--- PAGE 124 ---
+
+89 Reproducibility Requirements
+All Monte-Carlo runs shall be reproducible.
+•Random seeds shall be logged
+•Configuration files shall be versioned
+•Results shall be traceable to inputs
+90 Documentation and Traceability
+Each verification and validation case shall be traceable to:
+•A specific requirement
+•A specific simulation configuration
+•A specific result dataset
+This traceability is mandatory for certification-grade usage.
+91 Developer Validation Checklist
+Before declaring the simulation industry-grade, verify:
+•All unit tests pass
+•Nominal missions succeed deterministically
+•Monte-Carlo results are statistically stable
+•Fault cases are detected and contained
+Only after these conditions are satisfied may the simulation be considered verified and validated.
+Configuration Management and Mission Definition
+92 Purpose
+All industry-grade simulations must separate:
+•Code(logic and algorithms)
+•Configuration(vehicle, environment, mission parameters)
+Hard-coded parameters prevent reproducibility, comparison, and certification. This chapter
+defines mandatory configuration practices.
+124
+
+--- PAGE 125 ---
+
+93 Configuration Philosophy
+The simulation shall satisfy the following rules:
+1. No mission-critical parameter shall be hard-coded
+2. All configuration shall be external to source code
+3. Configuration shall be version-controlled
+4. A simulation run shall be fully reproducible from configuration alone
+94 Configuration Categories
+Configuration is divided into four categories.
+94.1 Vehicle Configuration
+Defines intrinsic vehicle properties:
+•Dry mass
+•Propellant mass
+•Inertia tensor
+•Actuator limits
+•Engine performance parameters
+94.2 Environment Configuration
+Defines environmental assumptions:
+•Earth gravitational parameterµ
+•Earth radiusR E
+•Atmospheric density parameters
+94.3 Mission Configuration
+Defines mission objectives:
+•Target orbit altitude
+•Entry interface altitude
+•Landing tolerances
+125
+
+--- PAGE 126 ---
+
+94.4 Simulation Configuration
+Defines numerical behavior:
+•Time step ∆t
+•Integrator selection
+•Monte-Carlo seed
+95 Configuration Interface Contract
+At simulation start:
+•Configuration files are parsed once
+•All parameters are validated
+•No configuration changes are allowed at runtime
+Invalid or incomplete configuration shall abort execution.
+96 Parameter Validation
+Each configuration parameter shall satisfy:
+•Dimensional correctness
+•Physical plausibility
+•Defined bounds
+Example:
+mdry>0, I xx>0,∆t >0
+97 Versioning and Traceability
+Each simulation run shall log:
+•Configuration file hash
+•Software version identifier
+•Execution timestamp
+These identifiers uniquely define a simulation result.
+126
+
+--- PAGE 127 ---
+
+98 Configuration Immutability
+Once the simulation begins:
+•Configuration parameters shall be immutable
+•Runtime tuning is prohibited
+Any violation invalidates the run.
+99 Developer Validation Checklist
+Before proceeding to performance constraints, verify:
+•Changing configuration changes behavior deterministically
+•Identical configurations produce identical results
+•Invalid parameters are rejected cleanly
+100 Final Acceptance Criteria
+The simulation is considered industry-grade if and only if all of the following conditions are satisfied:
+•All physics equations are implemented exactly as specified
+•All architectural contracts are enforced
+•Actuator dynamics and saturation are respected
+•Guidance and control operate on estimated state only
+•Numerical robustness checks prevent silent failure
+•Verification and Monte-Carlo criteria are satisfied
+•Configuration fully determines simulation behavior
+•Execution is deterministic across runs and platforms
+Failure to satisfy any single criterion invalidates the simulation for industry, certification, or
+flight-software-aligned use.
+127
+
+--- PAGE 128 ---
+
+101 Rationale for Real-Time Discipline
+Even when executed offline, adherence to real-time constraints ensures:
+•Compatibility with hardware-in-the-loop testing
+•Predictable numerical behavior
+•Scalability to flight software environments
+This discipline prevents algorithmic designs that cannot transition beyond desktop simulation.
+102 Document Closure
+This document now constitutes a complete, self-contained specification for an industry-grade Reusable
+Launch Vehicle simulation.
+It defines:
+•Mathematical foundations
+•Physical models
+•Software architecture
+•Actuation realism
+•Navigation and estimation
+•Fault containment
+•Verification and validation
+•Configuration and execution discipline
+No additional assumptions are required.
+Any implementation that conforms strictly to this document shall be:
+•Physically consistent
+•Numerically stable
+•Architecturally sound
+•Verification-ready
+•Industry-compliant
+This document is therefore complete.
+128

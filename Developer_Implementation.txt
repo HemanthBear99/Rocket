@@ -1,0 +1,1591 @@
+
+
+--- PAGE 1 ---
+
+Phase I (Ascent) Implementation
+Specification
+Reusable Launch Vehicle Simulation
+Developer Implementation Document
+Contents
+1 Purpose of This Document 6
+2 Scope and Phase Boundary 6
+2.1 Included in Phase I . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+2.2 Explicitly Excluded from Phase I . . . . . . . . . . . . . . . . . . . . . . 6
+3 Single Continuous Simulation Principle 7
+4 Global State Vector Definition 7
+4.1 State Variable Definitions . . . . . . . . . . . . . . . . . . . . . . . . . . 7
+4.2 State Integrity Rules . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 7
+5 Phase I Output Contract 8
+6 Coordinate Frames and Axis Conventions 9
+6.1 Reference Frames . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 9
+6.2 Body Axis Definition . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 9
+6.3 Quaternion Representation of Orientation . . . . . . . . . . . . . . . . . 9
+6.4 Rotation Matrix Construction . . . . . . . . . . . . . . . . . . . . . . . . 10
+6.5 Force Transformation Rule . . . . . . . . . . . . . . . . . . . . . . . . . . 10
+6.6 Angular Velocity Convention . . . . . . . . . . . . . . . . . . . . . . . . . 10
+6.7 Implementation Safeguards . . . . . . . . . . . . . . . . . . . . . . . . . . 11
+7 Global Time Integration Architecture 12
+7.1 Single Time Variable . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12
+7.2 Single Global State Evolution . . . . . . . . . . . . . . . . . . . . . . . . 12
+7.3 Mandatory Execution Order . . . . . . . . . . . . . . . . . . . . . . . . . 12
+7.4 Rationale for Ordering . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13
+7.5 Prohibited Implementation Patterns . . . . . . . . . . . . . . . . . . . . . 13
+7.6 Phase Flag Handling . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13
+7.7 Developer Verification Checklist . . . . . . . . . . . . . . . . . . . . . . . 14
+1
+
+--- PAGE 2 ---
+
+8 Ascent Guidance Algorithm 15
+8.1 Purpose of Ascent Guidance . . . . . . . . . . . . . . . . . . . . . . . . . 15
+8.2 Required Direction Vectors . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+8.2.1 Radial Unit Vector . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+8.2.2 Velocity Direction Unit Vector . . . . . . . . . . . . . . . . . . . . 15
+8.3 Guidance Sub-Phases . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+8.4 Vertical Ascent Sub-Phase . . . . . . . . . . . . . . . . . . . . . . . . . . 16
+8.5 Gravity Turn Sub-Phase . . . . . . . . . . . . . . . . . . . . . . . . . . . 16
+8.6 Blended Guidance Transition . . . . . . . . . . . . . . . . . . . . . . . . 16
+8.7 Blend Parameter Definition . . . . . . . . . . . . . . . . . . . . . . . . . 16
+8.8 Guidance Output . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+8.9 Guidance Edge-Case Handling . . . . . . . . . . . . . . . . . . . . . . . . 17
+9 Attitude Command Construction and Control Law 18
+9.1 Attitude Control Objective . . . . . . . . . . . . . . . . . . . . . . . . . . 18
+9.2 Commanded Attitude Definition . . . . . . . . . . . . . . . . . . . . . . . 18
+9.3 Quaternion Error Computation . . . . . . . . . . . . . . . . . . . . . . . 18
+9.4 Error Quaternion Decomposition . . . . . . . . . . . . . . . . . . . . . . 19
+9.5 Angular Velocity Error . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+9.6 Proportional–Derivative Control Law . . . . . . . . . . . . . . . . . . . . 19
+9.7 Torque Saturation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+9.8 Application of Control Torque . . . . . . . . . . . . . . . . . . . . . . . . 20
+9.9 Control Validation Requirements . . . . . . . . . . . . . . . . . . . . . . 20
+10 Translational Force Models 21
+10.1 Overview of Translational Forces . . . . . . . . . . . . . . . . . . . . . . 21
+10.2 Gravitational Force Model . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+10.2.1 Gravitational Force Definition . . . . . . . . . . . . . . . . . . . . 21
+10.2.2 Implementation Safeguards . . . . . . . . . . . . . . . . . . . . . . 21
+10.3 Thrust Force Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+10.3.1 Thrust Definition in Body Frame . . . . . . . . . . . . . . . . . . 22
+10.3.2 Transformation to Inertial Frame . . . . . . . . . . . . . . . . . . 22
+10.3.3 Implementation Constraints . . . . . . . . . . . . . . . . . . . . . 22
+10.4 Aerodynamic Drag Model . . . . . . . . . . . . . . . . . . . . . . . . . . 22
+10.4.1 Atmospheric Density Model . . . . . . . . . . . . . . . . . . . . . 22
+10.4.2 Relative Velocity . . . . . . . . . . . . . . . . . . . . . . . . . . . 22
+10.4.3 Drag Force Definition . . . . . . . . . . . . . . . . . . . . . . . . . 23
+10.4.4 Numerical Protection . . . . . . . . . . . . . . . . . . . . . . . . . 23
+10.5 Force Assembly . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+10.6 Force Validation Requirements . . . . . . . . . . . . . . . . . . . . . . . . 23
+11 Translational Dynamics and Numerical Integration 24
+11.1 Newton’s Second Law . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+11.2 Acceleration Evaluation . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+11.3 Velocity Integration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+11.4 Position Integration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+11.5 Integration Ordering Constraint . . . . . . . . . . . . . . . . . . . . . . . 25
+11.6 Numerical Stability Considerations . . . . . . . . . . . . . . . . . . . . . 25
+11.7 Translational Validation Tests . . . . . . . . . . . . . . . . . . . . . . . . 25
+2
+
+--- PAGE 3 ---
+
+12 Rotational Dynamics and Quaternion Integration 26
+12.1 Rigid-Body Rotational Dynamics . . . . . . . . . . . . . . . . . . . . . . 26
+12.2 Angular Acceleration Computation . . . . . . . . . . . . . . . . . . . . . 26
+12.3 Angular Velocity Integration . . . . . . . . . . . . . . . . . . . . . . . . . 26
+12.4 Quaternion Kinematics . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+12.5 Quaternion Integration . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+12.6 Quaternion Normalization . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+12.7 Integration Ordering Constraint . . . . . . . . . . . . . . . . . . . . . . . 27
+12.8 Rotational Validation Tests . . . . . . . . . . . . . . . . . . . . . . . . . 28
+13 Mass Flow, Engine Logic, and Ascent Termination 29
+13.1 Mass Flow Coupled to Thrust . . . . . . . . . . . . . . . . . . . . . . . . 29
+13.2 Mass Integration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29
+13.3 Propellant Exhaustion Logic . . . . . . . . . . . . . . . . . . . . . . . . . 29
+13.4 Main Engine Cutoff (MECO) . . . . . . . . . . . . . . . . . . . . . . . . 30
+13.5 Post-Cutoff Force Behavior . . . . . . . . . . . . . . . . . . . . . . . . . . 30
+13.6 Phase I Termination Conditions . . . . . . . . . . . . . . . . . . . . . . . 30
+13.7 Phase Transition Rules . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30
+13.8 Mass and Propulsion Validation . . . . . . . . . . . . . . . . . . . . . . . 31
+14 Phase I Output State and Handoff Contract 32
+14.1 Output State Validity Requirements . . . . . . . . . . . . . . . . . . . . . 32
+15 Mandatory Diagnostic Outputs 32
+16 Phase I Validation Checklist 33
+17 Freeze Rule for Phase I 33
+18 Implementation Summary 33
+19 End of Phase I Specification 34
+A Simulation Configuration and Constants 34
+A.1 Global Simulation Parameters . . . . . . . . . . . . . . . . . . . . . . . . 34
+A.2 Earth and Environmental Constants . . . . . . . . . . . . . . . . . . . . 34
+A.3 Stage 1 Vehicle Mass Properties (Reusable Booster) . . . . . . . . . . . . 34
+A.4 Stage 1 Aerodynamic Properties . . . . . . . . . . . . . . . . . . . . . . . 34
+A.5 Stage 1 Propulsion Properties . . . . . . . . . . . . . . . . . . . . . . . . 34
+A.6 Guidance Parameters (Gravity Turn) . . . . . . . . . . . . . . . . . . . . 34
+A.7 Attitude Control Parameters (Stage 1) . . . . . . . . . . . . . . . . . . . 34
+A.8 Initial Conditions at Liftoff . . . . . . . . . . . . . . . . . . . . . . . . . . 36
+A.9 Configuration Freeze Rule . . . . . . . . . . . . . . . . . . . . . . . . . . 36
+A.10 Stage 2 Properties During Phase I (Mounted Configuration) . . . . . . . 36
+A.11 Stage 2 Mass Properties . . . . . . . . . . . . . . . . . . . . . . . . . . . 36
+A.12 Stage 2 Inertia Properties . . . . . . . . . . . . . . . . . . . . . . . . . . 36
+A.13 Stacked Vehicle Mass Model (Phase I) . . . . . . . . . . . . . . . . . . . 37
+A.14 Stacked Vehicle Inertia Tensor (Phase I) . . . . . . . . . . . . . . . . . . 37
+A.15 Phase I Modeling Clarification (Stacked Configuration) . . . . . . . . . . 37
+3
+
+--- PAGE 4 ---
+
+B Stage Separation Event Specification 38
+B.1 Purpose . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38
+B.2 Separation Trigger Conditions . . . . . . . . . . . . . . . . . . . . . . . . 38
+B.3 Instantaneous Event Assumption . . . . . . . . . . . . . . . . . . . . . . 38
+B.4 State Inheritance . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38
+B.5 Creation of Independent State Vectors . . . . . . . . . . . . . . . . . . . 38
+B.5.1 Booster (Stage 1) . . . . . . . . . . . . . . . . . . . . . . . . . . . 38
+B.5.2 Upper Stage (Stage 2) . . . . . . . . . . . . . . . . . . . . . . . . 39
+B.6 Mass Reassignment . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39
+B.7 Inertia Reassignment . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39
+B.8 Thrust and Propulsion Logic . . . . . . . . . . . . . . . . . . . . . . . . . 39
+B.9 Phase Bifurcation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39
+B.10 Prohibited Actions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 40
+B.11 Validation Requirements . . . . . . . . . . . . . . . . . . . . . . . . . . . 40
+C Phase II-A: Booster Return-To-Launch-Site (RTLS) Recovery 41
+C.1 Phase II-A Objectives . . . . . . . . . . . . . . . . . . . . . . . . . . . . 41
+C.2 Initial Conditions for Phase II-A . . . . . . . . . . . . . . . . . . . . . . . 41
+C.3 Phase II-A Sub-Phases . . . . . . . . . . . . . . . . . . . . . . . . . . . . 41
+C.4 Post-Separation Coast . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42
+C.5 Boostback Burn . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42
+C.5.1 Boostback Burn Trigger . . . . . . . . . . . . . . . . . . . . . . . 42
+C.5.2 Boostback Guidance Law . . . . . . . . . . . . . . . . . . . . . . . 42
+C.5.3 Boostback Thrust Logic . . . . . . . . . . . . . . . . . . . . . . . 42
+C.6 Ballistic Coast to Entry Interface . . . . . . . . . . . . . . . . . . . . . . 43
+C.7 Forces and Dynamics in Phase II-A . . . . . . . . . . . . . . . . . . . . . 43
+C.8 Phase II-A Termination . . . . . . . . . . . . . . . . . . . . . . . . . . . 43
+C.9 Validation Requirements . . . . . . . . . . . . . . . . . . . . . . . . . . . 43
+D Phase II-B: Upper-Stage Orbital Ascent and Insertion 44
+D.1 Phase II-B Objectives . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44
+D.2 Initial Conditions for Phase II-B . . . . . . . . . . . . . . . . . . . . . . . 44
+D.3 Phase II-B Sub-Phases . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44
+D.4 Upper-Stage Ignition and Stabilization . . . . . . . . . . . . . . . . . . . 45
+D.5 Orbital Ascent Guidance Law . . . . . . . . . . . . . . . . . . . . . . . . 45
+D.6 Upper-Stage Thrust and Mass Flow . . . . . . . . . . . . . . . . . . . . . 45
+D.7 Forces Acting on the Upper Stage . . . . . . . . . . . . . . . . . . . . . . 45
+D.8 Orbital Cutoff Condition (SECO) . . . . . . . . . . . . . . . . . . . . . . 46
+D.9 Post-Cutoff Orbital State . . . . . . . . . . . . . . . . . . . . . . . . . . . 46
+D.10 Validation Requirements . . . . . . . . . . . . . . . . . . . . . . . . . . . 46
+A Post-Separation Vehicle Configuration 47
+A.1 Configuration Switching Rule . . . . . . . . . . . . . . . . . . . . . . . . 47
+A.2 Booster Configuration (Stage 1, Post-Separation) . . . . . . . . . . . . . 47
+A.2.1 Mass Properties . . . . . . . . . . . . . . . . . . . . . . . . . . . . 47
+A.2.2 Inertia Tensor . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 47
+A.2.3 Aerodynamics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 47
+A.2.4 Propulsion . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 47
+A.3 Upper-Stage Configuration (Stage 2, Post-Separation) . . . . . . . . . . . 48
+4
+
+--- PAGE 5 ---
+
+A.3.1 Mass Properties . . . . . . . . . . . . . . . . . . . . . . . . . . . . 48
+A.3.2 Inertia Tensor . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 48
+A.3.3 Aerodynamics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 48
+A.3.4 Propulsion . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 48
+A.4 Configuration Consistency Rules . . . . . . . . . . . . . . . . . . . . . . . 48
+A.5 Validation Checklist . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 48
+5
+
+--- PAGE 6 ---
+
+1 Purpose of This Document
+This document defines theimplementation-level specificationforPhase I: Ascent
+of the Reusable Launch Vehicle (RLV) simulation.
+Its purpose is to translate the mathematical definitions provided in the core theory
+document into adeterministic, executable algorithmthat can be implemented di-
+rectly by a software developer.
+This isnota physics derivation document. All governing equations are assumed to be
+already defined and validated in the mathematical foundations reference. This document
+instead focuses on:
+•Execution order
+•Data dependencies
+•Numerical safeguards
+•Explicit implementation rules
+Any ambiguity in execution order or data flow is treated as a defect.
+2 Scope and Phase Boundary
+Phase I represents thepowered ascent phaseof the mission. It begins at liftoff and
+ends atMain Engine Cutoff (MECO).
+2.1 Included in Phase I
+•Rigid-body translational dynamics
+•Rigid-body rotational dynamics
+•Quaternion-based attitude representation
+•Gravity, thrust, and aerodynamic drag
+•Ascent guidance and attitude control
+2.2 Explicitly Excluded from Phase I
+•Apogee detection
+•Orbital insertion
+•Reentry dynamics
+•Landing or recovery logic
+Phase I must terminate with aphysically continuous statesuitable for ballistic
+coast. No state adjustment or correction is permitted at phase termination.
+6
+
+--- PAGE 7 ---
+
+3 Single Continuous Simulation Principle
+The entire mission is simulated as asingle continuous time evolution. Mission phases
+modify the active models and logic, butnever modifythe definition of the vehicle state.
+There exists:
+•One global time variablet
+•One global state vectorx(t)
+Phase I logic operates only by evolving this state forward in time.
+4 Global State Vector Definition
+At all times during the simulation, including Phase I, the vehicle state is defined as:
+x(t) =
+r(t)
+v(t)
+q(t)
+ω(t)
+m(t)
+
+4.1 State Variable Definitions
+•r∈R3
+Position vector of the vehicle center of mass, expressed in the inertial reference
+frame.
+•v∈R3
+Inertial velocity vector of the vehicle center of mass.
+•q∈R4
+Unit quaternion representing vehicle orientation. This quaternion maps vectors
+from the body-fixed frame to the inertial frame.
+•ω∈R3
+Angular velocity vector expressed in the body-fixed frame.
+•m∈R+
+Instantaneous vehicle mass, including remaining propellant.
+4.2 State Integrity Rules
+The following rules are mandatory:
+•The structure ofxshall never change
+•No state component may be reset or redefined
+•Quaternion normalization must be enforced
+•Mass must remain strictly positive
+Violation of any of these rules invalidates the simulation.
+7
+
+--- PAGE 8 ---
+
+5 Phase I Output Contract
+Phase I produces a single output state at the moment of ascent termination:
+xMECO =
+r
+v
+q
+ω
+m
+
+This state must satisfy:
+•Quaternion norm∥q∥= 1
+•Finite position and velocity components
+•Zero thrust applied after termination
+No smoothing, filtering, or correction is permitted at this boundary.
+8
+
+--- PAGE 9 ---
+
+6 Coordinate Frames and Axis Conventions
+This section defines all coordinate frames and axis conventions used during Phase I. These
+definitions arebindingand must be followed exactly by all force, torque, and kinematic
+computations.
+Any inconsistency in frame usage will produce incorrect vehicle motion even if the
+governing equations are implemented correctly.
+6.1 Reference Frames
+Two coordinate frames are used throughout Phase I:
+•Inertial Frame (I-frame)A non-rotating, Earth-centered reference frame used
+to express:
+–Positionr
+–Velocityv
+–Translational forces
+•Body-Fixed Frame (B-frame)A frame rigidly attached to the vehicle and mov-
+ing with it, used to express:
+–Thrust direction
+–Angular velocityω
+–Control torques
+All state variables are explicitly associated with one of these frames. No variable may
+be interpreted ambiguously.
+6.2 Body Axis Definition
+The body-fixed coordinate frame is defined such that:
+•Body +Zaxis is aligned with the engine thrust direction
+•Body +Xand +Yaxes are orthogonal and complete a right-handed system
+By convention:
+e(b)
+z=
+0
+0
+1
+
+All thrust forces are initially defined along this axis in the body frame.
+6.3 Quaternion Representation of Orientation
+Vehicle orientation is represented exclusively using a unit quaternion:
+q=
+q0q1q2q3T
+The quaternion maps vectors from the body-fixed frame to the inertial frame.
+9
+
+--- PAGE 10 ---
+
+Unit Constraint
+The quaternion must satisfy:
+∥q∥= 1
+This constraint is enforced numerically at every timestep. Failure to enforce normal-
+ization invalidates all force transformations.
+6.4 Rotation Matrix Construction
+A rotation matrixR(q)∈R3×3is computedalgebraicallyfrom the quaternion when
+needed.
+The rotation matrix performs the transformation:
+v(i)=R(q)v(b)
+Important implementation rules:
+•Rotation matrices shallnever be integrated
+•Rotation matrices shallnever be stored as state
+•Rotation matrices are recomputed fromqevery timestep
+This rule is non-negotiable and exists to prevent numerical drift.
+6.5 Force Transformation Rule
+All forces generated by the vehicle are defined in the body-fixed frame. To apply these
+forces to translational dynamics, they must be transformed to the inertial frame.
+For any forceF(b)defined in the body frame:
+F(i)=R(q)F(b)
+This rule applies to:
+•Thrust forces
+•Any future thrust-vector-control effects
+External forces such as gravity and drag are defined directly in the inertial frame and
+require no transformation.
+6.6 Angular Velocity Convention
+Angular velocityωis expressedexclusively in the body frame. It represents the
+instantaneous rotation rate of the body-fixed axes relative to the inertial frame.
+This convention is required for:
+•Quaternion kinematic equations
+•Euler rotational dynamics
+Angular velocity shall not be transformed to the inertial frame during Phase I.
+10
+
+--- PAGE 11 ---
+
+6.7 Implementation Safeguards
+The following safeguards must be enforced in code:
+•Quaternion normalization before computingR(q)
+•No division by zero when normalizing vectors
+•Explicit frame labeling for all vectors
+Violations of these safeguards typically result in subtle trajectory errors that are
+difficult to diagnose after the fact.
+11
+
+--- PAGE 12 ---
+
+7 Global Time Integration Architecture
+Phase I is executed as part of asingle continuous simulation loop. There are no
+nested solvers, no phase-specific integrators, and no reset logic. All mission phases share
+the same global time variable and state vector.
+7.1 Single Time Variable
+Lett kdenote the simulation time at discrete stepk. Time advances uniformly as:
+tk+1=tk+ ∆t
+The timestep ∆tis fixed throughout Phase I. Adaptive time-stepping is intentionally
+avoided at this stage to ensure deterministic and debuggable behavior.
+7.2 Single Global State Evolution
+At each timestep, the state vector:
+x(tk) =
+rk
+vk
+qk
+ωk
+mk
+
+is evolved forward tox(t k+1).
+No intermediate or hidden states are permitted. All computations must be derived
+exclusively from the current state.
+7.3 Mandatory Execution Order
+The following execution order must be followedexactlyat every timestep during Phase
+I:
+1. Compute guidance commands
+2. Compute attitude control torque
+3. Compute all translational forces
+4. Compute translational acceleration
+5. Compute angular acceleration
+6. Integrate translational states
+7. Integrate rotational states
+8. Normalize quaternion
+9. Update mass
+10. Evaluate Phase I termination conditions
+Each step depends on the results of the previous steps. Reordering any step invalidates
+the physical interpretation of the simulation.
+12
+
+--- PAGE 13 ---
+
+7.4 Rationale for Ordering
+This ordering reflects the physical causality of the system:
+•Guidance determinesdesired orientation
+•Control converts orientation error intotorque
+•Forces generateaccelerations
+•Accelerations generatemotion
+For example:
+•Updating mass before computing thrust leads to force imbalance
+•Integrating position before velocity introduces numerical energy errors
+•Normalizing the quaternion after computing forces corrupts orientation
+These errors may not cause immediate crashes but will produce non-physical trajec-
+tories.
+7.5 Prohibited Implementation Patterns
+The following practices are explicitly forbidden:
+•Time-based phase switching
+•State resets or clamping (except mass positivity)
+•Direct modification of velocity or position
+•Integration of rotation matrices
+•Applying forces before computing orientation
+Any implementation exhibiting these patterns must be rejected.
+7.6 Phase Flag Handling
+A discrete phase flag is used to indicate the active mission phase. During Phase I:
+phase = ASCENT
+Phase transitions occur only after the state has been fully updated and termination
+conditions are satisfied.
+The phase flag may change, but the state vector must remain continuous.
+13
+
+--- PAGE 14 ---
+
+7.7 Developer Verification Checklist
+Before proceeding to force model implementation, the developer must verify:
+•Zero forces produce constant velocity
+•Zero torque produces constant angular velocity
+•Quaternion norm remains unity
+•Time advances monotonically
+Only after these checks pass may guidance and force models be introduced.
+14
+
+--- PAGE 15 ---
+
+8 Ascent Guidance Algorithm
+This section defines the ascent guidance logic used during Phase I. Guidance determines
+thedesired thrust directiononly. It does not generate forces or torques directly.
+Guidance outputs are consumed by the attitude control system, which produces con-
+trol torques to track the commanded orientation.
+Guidance shall never modify the state vector directly.
+8.1 Purpose of Ascent Guidance
+The objectives of ascent guidance are:
+•Clear the dense lower atmosphere safely
+•Build vertical velocity during early ascent
+•Gradually reorient thrust to follow the trajectory
+•Minimize aerodynamic and control losses
+These objectives are achieved without precomputed pitch schedules or time-based
+commands.
+8.2 Required Direction Vectors
+Guidance logic requires two unit vectors computed from the current state.
+8.2.1 Radial Unit Vector
+The radial direction points away from the Earth’s center:
+ˆr=r
+∥r∥
+This vector is always well-defined during Phase I.
+8.2.2 Velocity Direction Unit Vector
+The velocity direction indicates the instantaneous flight path:
+ˆv=
+
+v
+∥v∥,∥v∥>0
+ˆr,∥v∥= 0
+The fallback to ˆrprevents division by zero at liftoff.
+8.3 Guidance Sub-Phases
+Phase I ascent guidance is divided into two sub-phases:
+1. Vertical Ascent Sub-Phase
+2. Gravity Turn Sub-Phase
+The transition between these sub-phases is based on physical conditions, not elapsed
+time.
+15
+
+--- PAGE 16 ---
+
+8.4 Vertical Ascent Sub-Phase
+During early ascent, the vehicle is commanded to point directly away from the Earth.
+ˆtcmd=ˆr
+This ensures:
+•Maximum clearance from the launch site
+•Reduced lateral aerodynamic loading
+•Simple and stable initial control behavior
+The vertical ascent sub-phase remains active until predefined altitude and velocity
+thresholds are exceeded.
+8.5 Gravity Turn Sub-Phase
+Once the vehicle has sufficient altitude and speed, thrust is gradually aligned with the
+velocity direction to initiate a gravity turn.
+ˆtcmd=ˆv
+When thrust is aligned with velocity:
+•Thrust increases speed without lateral acceleration
+•Gravity naturally bends the trajectory
+•Control effort is minimized
+8.6 Blended Guidance Transition
+To avoid discontinuities in commanded orientation, a blended guidance law is used during
+transition.
+ˆtcmd= (1−α) ˆr+α ˆv
+The resulting vector must be normalized:
+ˆtcmd←ˆtcmd
+∥ˆtcmd∥
+8.7 Blend Parameter Definition
+The blend parameterαis defined as a function of altitude:
+α= cliph−h switch
+∆h,0,1
+where:
+•his altitude above the Earth surface
+16
+
+--- PAGE 17 ---
+
+•hswitch is the gravity turn initiation altitude
+•∆his the transition altitude range
+This formulation ensures a smooth and continuous transition.
+8.8 Guidance Output
+The output of the guidance algorithm is:
+•Desired thrust direction ˆtcmdin the inertial frame
+This vector is passed to the attitude command generation logic, which constructs the
+desired orientation quaternion.
+Guidance does not produce torques, forces, or accelerations.
+8.9 Guidance Edge-Case Handling
+The following edge cases must be handled explicitly:
+•Near-zero velocity magnitude
+•Numerical noise during early ascent
+•Transition region normalization
+In all such cases, fallback to radial pointing is permitted.
+17
+
+--- PAGE 18 ---
+
+9 Attitude Command Construction and Control Law
+This section defines how the desired thrust direction produced by the guidance algorithm
+is converted into a commanded vehicle attitude and how control torques are generated
+to track that attitude.
+This section introducesno new physics. It defines the control logic that interfaces
+guidance with rotational dynamics.
+9.1 Attitude Control Objective
+The objective of the attitude control system during Phase I is:
+•Align the vehicle body +Zaxis with the commanded thrust direction
+•Suppress angular rate oscillations
+•Maintain stable, bounded rotational motion
+Perfect tracking is not required. Stability and physical plausibility take precedence.
+9.2 Commanded Attitude Definition
+The guidance algorithm outputs a desired thrust direction ˆtcmdexpressed in the inertial
+frame.
+The commanded attitude quaternionq cmdmust satisfy:
+R(q cmd)
+0
+0
+1
+=ˆtcmd
+This condition ensures that the body-fixed thrust axis is aligned with the commanded
+inertial direction.
+Implementation Note
+The specific construction ofq cmdis implementation-dependent. However, the above con-
+straint must be satisfied exactly. Any quaternion that meets this condition is acceptable.
+9.3 Quaternion Error Computation
+Letqdenote the current vehicle attitude quaternion andq cmddenote the commanded
+attitude quaternion.
+The attitude error quaternion is defined as:
+qe=qcmd⊗q−1
+This quaternion represents the rotation required to bring the vehicle from its current
+orientation to the desired orientation.
+18
+
+--- PAGE 19 ---
+
+9.4 Error Quaternion Decomposition
+The error quaternion is written as:
+qe=qe0
+qe,v
+where:
+•qe0is the scalar component
+•qe,v∈R3is the vector component
+For small attitude errors,q e,vis approximately proportional to the rotation error axis.
+9.5 Angular Velocity Error
+The angular velocity error is defined as:
+ωe=ω−ω cmd
+During Phase I ascent, the commanded angular velocity is zero:
+ωcmd=0
+Therefore:
+ωe=ω
+9.6 Proportional–Derivative Control Law
+A proportional–derivative (PD) control law is used to compute the control torque applied
+to the vehicle:
+τcmd=−K pqe,v−K dωe
+where:
+•K p>0 is the proportional gain
+•K d>0 is the derivative gain
+The proportional term drives orientation error to zero. The derivative term damps
+angular motion.
+9.7 Torque Saturation
+Real actuators have finite torque capability. The commanded torque must be saturated
+component-wise:
+τ= clip (τ cmd,τmin,τmax)
+Torque saturation is mandatory. Failure to apply saturation can result in unphysical
+angular accelerations.
+19
+
+--- PAGE 20 ---
+
+9.8 Application of Control Torque
+The total torque applied to the rotational dynamics during Phase I is:
+τ=τ control
+No additional torque sources (aerodynamic or thrust-induced) are applied during
+Phase I unless explicitly enabled.
+9.9 Control Validation Requirements
+Before proceeding to translational force modeling, the developer must verify:
+•Constant commanded attitude produces bounded torque
+•Angular velocity decays under constant command
+•Torque remains within actuator limits
+Only after these conditions are satisfied may translational forces be introduced.
+20
+
+--- PAGE 21 ---
+
+10 Translational Force Models
+This section defines all translational forces acting on the vehicle during Phase I ascent.
+Translational forces act on the vehicle center of mass and determine its acceleration
+through Newton’s second law.
+No force defined in this section directly modifies orientation. All forces ultimately
+influence motion only through translational acceleration.
+10.1 Overview of Translational Forces
+During Phase I, the total translational force acting on the vehicle is:
+Ftotal=F grav+F thrust +F drag
+Each force is computed independently and assembled explicitly. Implicit or combined
+force models are not permitted.
+10.2 Gravitational Force Model
+Gravity is modeled as a central force originating from the center of the Earth. Constant
+gravitational acceleration approximations are explicitly forbidden.
+10.2.1 Gravitational Force Definition
+Letµdenote the Earth’s gravitational parameter. The gravitational force acting on the
+vehicle is:
+Fgrav=−µmr
+∥r∥3
+This force:
+•Always points toward the Earth’s center
+•Decreases with increasing radial distance
+•Is proportional to vehicle mass
+10.2.2 Implementation Safeguards
+The following safeguards must be enforced:
+•∥r∥ ̸= 0 at all times
+•Double-precision arithmetic
+•Explicit computation of∥r∥3to avoid overflow
+10.3 Thrust Force Model
+Thrust is the primary force responsible for increasing the vehicle’s mechanical energy
+during ascent.
+21
+
+--- PAGE 22 ---
+
+10.3.1 Thrust Definition in Body Frame
+The thrust force is defined in the body-fixed frame as:
+F(b)
+thrust =T
+0
+0
+1
+
+whereT≥0 is the thrust magnitude commanded by the propulsion system.
+10.3.2 Transformation to Inertial Frame
+To apply thrust to translational dynamics, the thrust force must be transformed to the
+inertial frame:
+F(i)
+thrust =R(q)F(b)
+thrust
+This transformation ensures that thrust direction follows vehicle orientation.
+10.3.3 Implementation Constraints
+•Thrust magnitude must be bounded
+•Thrust shall not be applied after engine cutoff
+•Thrust acts through the center of mass during Phase I
+10.4 Aerodynamic Drag Model
+Aerodynamic drag represents resistive forces arising from interaction with the atmo-
+sphere.
+Only drag is modeled during Phase I. Lift, moments, and heating effects are excluded.
+10.4.1 Atmospheric Density Model
+Atmospheric density is modeled using an exponential profile:
+ρ(h) =ρ 0e−h/H
+where:
+•ρ 0is sea-level density
+•His the atmospheric scale height
+•h=∥r∥ −R Eis altitude above Earth’s surface
+10.4.2 Relative Velocity
+The relative velocity between the vehicle and atmosphere is:
+vrel=v
+Atmospheric winds are neglected during Phase I.
+22
+
+--- PAGE 23 ---
+
+10.4.3 Drag Force Definition
+The drag force vector is defined as:
+Fdrag=
+
+−1
+2ρCDA∥v rel∥2vrel
+∥vrel∥,∥v rel∥>0
+0,∥v rel∥= 0
+where:
+•C Dis the drag coefficient
+•Ais the reference area
+10.4.4 Numerical Protection
+To ensure numerical stability:
+•Drag is set to zero when velocity magnitude is zero
+•Density is clamped to zero at high altitude
+•Division by∥v∥is guarded explicitly
+10.5 Force Assembly
+Once individual forces are computed, they are assembled as:
+Ftotal=F grav+F thrust +F drag
+No force shall be omitted or double-counted.
+10.6 Force Validation Requirements
+Before proceeding to translational dynamics integration, the developer must verify:
+•Gravity-only motion produces conic trajectories
+•Thrust-only motion aligns with body +Zaxis
+•Drag always opposes velocity
+•All forces remain finite
+23
+
+--- PAGE 24 ---
+
+11 Translational Dynamics and Numerical Integra-
+tion
+This section defines how translational forces are converted into acceleration and how
+velocity and position are integrated in time. This is the only location in Phase I where
+translational state variablesvandrare updated.
+Direct modification of position or velocity outside this section is strictly forbidden.
+11.1 Newton’s Second Law
+Translational acceleration of the vehicle center of mass is governed by Newton’s second
+law:
+a=1
+mFtotal
+where:
+•F totalis the total translational force assembled
+•mis the instantaneous vehicle mass
+Mass must be evaluated using its value at the current timestep. Using a predicted or
+updated mass value introduces force imbalance.
+11.2 Acceleration Evaluation
+At timestepk, acceleration is computed as:
+ak=1
+mkFtotal,k
+Acceleration is expressed in the inertial frame and applies directly to inertial velocity
+integration.
+Implementation Rule
+Acceleration must be computedafterforce assembly andbeforeany state integration.
+11.3 Velocity Integration
+Velocity is updated by integrating acceleration:
+vk+1=v k+a k∆t
+This explicit integration scheme is sufficient for Phase I when timestep size is chosen
+appropriately.
+Higher-order integrators may be substituted provided they preserve the same evalua-
+tion order.
+24
+
+--- PAGE 25 ---
+
+11.4 Position Integration
+Position is updated using the current velocity:
+rk+1=rk+vk∆t
+Using the updated velocityv k+1for position integration is prohibited, as it introduces
+artificial energy gain.
+11.5 Integration Ordering Constraint
+The following ordering must be preserved at every timestep:
+1. ComputeF total
+2. Computea
+3. Integrate velocity
+4. Integrate position
+Any deviation from this order invalidates the physical interpretation of the simulation.
+11.6 Numerical Stability Considerations
+To ensure numerical stability during ascent:
+•∆tmust be sufficiently small to resolve thrust changes
+•Extremely large accelerations indicate force-model errors
+•Velocity and position must remain finite at all times
+If instability is observed, timestep reduction is preferred over force clamping or state
+correction.
+11.7 Translational Validation Tests
+Before proceeding to rotational dynamics integration, the developer must verify:
+•Zero force produces constant velocity
+•Constant force produces linear velocity growth
+•Position evolves smoothly without discontinuities
+Failure of any test indicates an error in force computation or ordering.
+25
+
+--- PAGE 26 ---
+
+12 Rotational Dynamics and Quaternion Integration
+This section defines the rotational equations of motion and the numerical procedure used
+to propagate vehicle orientation during Phase I. All rotational dynamics are computed
+independently of translational motion, but directly influence thrust direction through
+orientation.
+Incorrect implementation of this section will corrupt all force directions even if trans-
+lational physics is correct.
+12.1 Rigid-Body Rotational Dynamics
+The vehicle is modeled as a rigid body with inertia tensorIexpressed in the body-fixed
+frame.
+Angular momentum is defined as:
+H=Iω
+The rotational equation of motion is:
+dH
+dt=τ
+Substituting forHand expressing derivatives in the body frame yields:
+I˙ω+ω×(Iω) =τ
+12.2 Angular Acceleration Computation
+Solving for angular acceleration:
+˙ω=I−1(τ−ω×(Iω))
+This equation must be evaluated using:
+•Current angular velocityω k
+•Current control torqueτ k
+No future or predicted values may be used.
+12.3 Angular Velocity Integration
+Angular velocity is updated by integrating angular acceleration:
+ωk+1=ω k+˙ωk∆t
+Higher-order integration methods may be used, provided that the gyroscopic coupling
+termω×(Iω) is retained.
+Neglecting this term produces non-physical rotational behavior.
+26
+
+--- PAGE 27 ---
+
+12.4 Quaternion Kinematics
+Orientation is propagated using quaternion kinematics. Let the quaternion be written
+as:
+q=q0
+qv
+The quaternion time derivative is:
+˙q=1
+20−ωT
+ω−[ω] ×
+q
+This equation is exact and contains no approximations.
+12.5 Quaternion Integration
+Quaternion integration is performed numerically:
+qraw
+k+1=qk+˙qk∆t
+No alternative quaternion update formula may be used during Phase I.
+12.6 Quaternion Normalization
+Due to numerical integration error, quaternion magnitude will drift from unity if left
+uncorrected.
+Therefore, at every timestep:
+qk+1=qraw
+k+1
+∥qraw
+k+1∥
+This step is mandatory and non-optional.
+Skipping normalization results in:
+•Non-orthogonal rotation matrices
+•Artificial scaling of forces
+•Rapid loss of simulation stability
+12.7 Integration Ordering Constraint
+The following ordering must be preserved:
+1. Compute control torqueτ
+2. Compute angular acceleration ˙ω
+3. Integrate angular velocity
+4. Compute quaternion derivative
+5. Integrate quaternion
+6. Normalize quaternion
+Violating this order invalidates orientation propagation.
+27
+
+--- PAGE 28 ---
+
+12.8 Rotational Validation Tests
+Before proceeding to mass update and phase termination logic, the developer must verify:
+•Zero torque produces constant angular velocity
+•Quaternion norm remains unity
+•Pure rotation preserves vector magnitude
+Only after these tests pass may Phase I be considered rotationally valid.
+28
+
+--- PAGE 29 ---
+
+13 Mass Flow, Engine Logic, and Ascent Termina-
+tion
+This section defines how vehicle mass evolves due to propellant consumption, how thrust
+is terminated, and how Phase I ascent ends. Correct implementation of this section is
+critical for ensuring state continuity into the subsequent coast phase.
+No force or state correction is permitted at engine cutoff.
+13.1 Mass Flow Coupled to Thrust
+During powered ascent, vehicle mass decreases due to propellant consumption. The mass
+flow rate is directly coupled to thrust magnitude.
+˙m=−T
+Ispg0
+where:
+•Tis thrust magnitude
+•Ispis engine specific impulse
+•g 0is standard gravity
+The negative sign indicates decreasing mass.
+13.2 Mass Integration
+Mass is updated after thrust computation and state integration:
+mk+1=m k+ ˙m k∆t
+Implementation Rules
+•Mass must be updated once per timestep
+•Updated mass shall not be used retroactively
+•Mass must remain strictly positive
+If numerical integration attempts to reduce mass below the dry mass, propellant
+depletion logic must be triggered.
+13.3 Propellant Exhaustion Logic
+Letm propdenote remaining propellant mass.
+When:
+mprop≤0
+the following actions must occur immediately:
+•Thrust magnitudeT←0
+29
+
+--- PAGE 30 ---
+
+•Mass flow rate ˙m←0
+•Propulsion system is disabled
+No negative propellant mass is permitted under any circumstances.
+13.4 Main Engine Cutoff (MECO)
+Main Engine Cutoff (MECO) represents the formal termination of powered ascent.
+MECO may be triggered by:
+•Propellant depletion
+•Explicit cutoff command
+•Satisfaction of a target ascent condition
+At MECO:
+T= 0⇒F thrust =0
+All subsequent motion is governed solely by non-propulsive forces.
+13.5 Post-Cutoff Force Behavior
+After MECO, the total translational force becomes:
+Ftotal=F grav+F drag
+No thrust force or thrust-induced torque may be applied beyond this point.
+Rotational dynamics may continue under attitude control if commanded, but no new
+thrust-aligned torque sources are introduced.
+13.6 Phase I Termination Conditions
+Phase I ascent terminates when any of the following conditions are met:
+•MECO event occurs
+•Propellant mass reaches zero
+•A mission-defined ascent target is satisfied
+Phase termination is evaluated only after full state integration at the current timestep.
+13.7 Phase Transition Rules
+At the moment of phase transition:
+•No state variables are reset
+•No smoothing or filtering is applied
+•Time integration continues uninterrupted
+The phase flag is updated, and control is transferred to the coast phase logic at the
+next timestep.
+30
+
+--- PAGE 31 ---
+
+13.8 Mass and Propulsion Validation
+Before proceeding to Phase II (Coast), the developer must verify:
+•Mass decreases monotonically during thrust
+•Mass remains constant after cutoff
+•Thrust force is exactly zero after MECO
+•Trajectory remains continuous across cutoff
+Failure of any validation indicates an error in propulsion or mass handling.
+31
+
+--- PAGE 32 ---
+
+14 Phase I Output State and Handoff Contract
+Phase I ascent produces a single physically continuous output state at the moment of
+ascent termination (MECO).
+The output state vector is:
+xMECO =
+r
+v
+q
+ω
+m
+
+This state is passedunchangedto the subsequent coast phase. No interpolation,
+filtering, or correction is permitted at this boundary.
+14.1 Output State Validity Requirements
+At the moment of Phase I termination, the output state must satisfy:
+•Quaternion normalization:∥q∥= 1
+•Finite position and velocity components
+•Finite angular velocity components
+•Positive vehicle mass
+•Zero thrust force applied
+Any violation indicates a numerical or logical error in Phase I.
+15 Mandatory Diagnostic Outputs
+To support verification and debugging, the following diagnostic quantities must be logged
+throughout Phase I:
+•Altitude vs. time
+•Velocity magnitude vs. time
+•Dynamic pressure vs. time
+•Thrust magnitude vs. time
+•Mass vs. time
+•Quaternion norm vs. time
+•Control torque magnitude vs. time
+Diagnostic data shall be logged at every timestep.
+32
+
+--- PAGE 33 ---
+
+16 Phase I Validation Checklist
+Phase I ascent is considered valid only if all of the following conditions are satisfied:
+•Vehicle lifts off only when thrust exceeds weight
+•Trajectory bends smoothly under gravity (natural gravity turn)
+•No discontinuities in position or velocity
+•Drag dissipates energy monotonically
+•Quaternion norm remains unity
+•Mass decreases only during thrust
+•Mass remains constant after MECO
+Failure of any item invalidates Phase I and must be corrected before proceeding to
+Phase II.
+17 Freeze Rule for Phase I
+Once Phase I passes all validation checks, it is consideredfrozen.
+This means:
+•No further tuning is permitted without physics justification
+•No interface changes are allowed
+•Subsequent phases must consume Phase I output exactly as produced
+This rule ensures traceability and prevents downstream debugging from masking
+ascent-phase errors.
+18 Implementation Summary
+Phase I ascent is fully defined by:
+•A single continuous state vector
+•Physics-driven guidance and control
+•Explicit force modeling
+•Strict execution ordering
+•Continuous state evolution
+If Phase I is implemented exactly as specified in this document, subsequent mission
+phases will inherit a physically valid initial state.
+33
+
+--- PAGE 34 ---
+
+19 End of Phase I Specification
+This document fully defines the implementation of Phase I (Ascent) for the Reusable
+Launch Vehicle simulation.
+All future mission phases build upon the output of this phase without modification.
+A Simulation Configuration and Constants
+This appendix defines all numerical constants, vehicle parameters, environmental prop-
+erties, and tuning values required to execute Phase I (Ascent) deterministically for a
+dual-stage reusable launch vehicle.
+All values in this appendix are authoritative for the simulation.
+A.1 Global Simulation Parameters
+A.2 Earth and Environmental Constants
+A.3 Stage 1 Vehicle Mass Properties (Reusable Booster)
+Inertia Tensor (Stage 1)
+The inertia tensor is assumed constant during Phase I:
+I1=
+1.20×1070 0
+0 1.20×1070
+0 0 2.00×106
+kg·m2
+This approximation is valid for early ascent and simplifies control tuning.
+A.4 Stage 1 Aerodynamic Properties
+Note:C Dis treated as constant during Phase I. Mach-dependent aerodynamics are
+deferred to later fidelity upgrades.
+A.5 Stage 1 Propulsion Properties
+For Phase I ascent,I spis linearly interpolated with altitude.
+A.6 Guidance Parameters (Gravity Turn)
+These values produce a realistic Falcon-class gravity turn without excessive aerodynamic
+loading.
+A.7 Attitude Control Parameters (Stage 1)
+These gains are tuned for:
+•Large inertia
+•High thrust-induced disturbances
+•Smooth gravity turn tracking
+34
+
+--- PAGE 35 ---
+
+Parameter Symbol Value
+Time Step ∆t 0.01 s
+Unit System – SI (MKS)
+Integration Scheme – Explicit Euler (baseline)
+Table 1: Global simulation parameters
+Quantity Symbol Value
+Earth gravitational parameter µ 3.986004418×1014m3/s2
+Earth mean radius RE 6,371,000 m
+Standard gravity g0 9.80665 m/s2
+Sea-level density ρ0 1.225 kg/m3
+Atmospheric scale height H 8,500 m
+Table 2: Earth and atmospheric constants
+Parameter Symbol Value
+Initial wet mass m0,1 420,000 kg
+Dry mass (incl. landing fuel margin) mdry,1 30,000 kg
+Propellant mass mprop,1 390,000 kg
+Table 3: Stage 1 mass properties
+Parameter Symbol Value
+Reference diameter D 3.7 m
+Reference area A 10.75 m2
+Drag coefficient CD 0.42 (constant)
+Table 4: Stage 1 aerodynamic parameters
+Parameter Symbol Value
+Maximum thrust (sea-level) Tmax,1 7.6×106N
+Throttle range – 70% – 100%
+Specific impulse (SL) Isp,1 282 s
+Specific impulse (vac) Isp,1 311 s
+Table 5: Stage 1 propulsion parameters
+Parameter Symbol Value
+Gravity turn start altitude hswitch 1,500 m
+Gravity turn transition range ∆h 25,000 m
+Minimum velocity for turn vmin 150 m/s
+Table 6: Ascent guidance parameters
+Parameter Symbol Value
+Proportional gain Kp 1.2×104
+Derivative gain Kd 3.5×103
+Max control torque τmax 2.5×106N·m
+Min control torque τmin −2.5×106N·m
+Table 7: Attitude control gains and limits
+35
+
+--- PAGE 36 ---
+
+A.8 Initial Conditions at Liftoff
+Initial Orientation
+The initial quaternion aligns body +Zwith the radial direction:
+q0=
+1 0 0 0T
+This corresponds to a vertical launch configuration.
+A.9 Configuration Freeze Rule
+All values defined in this appendix are frozen for Phase I validation. Any change requires:
+•Re-validation of ascent trajectory
+•Re-tuning of control gains if mass or inertia changes
+A.10 Stage 2 Properties During Phase I (Mounted Configura-
+tion)
+During Phase I ascent, Stage 2 remains mechanically attached to Stage 1 and must be
+treated as inert, non-propulsive mass. Stage 2 engines are inactive and do not contribute
+thrust during this phase.
+Stage 2 contributes to:
+•Total vehicle mass
+•Total vehicle inertia
+Stage 2 doesnotcontribute to:
+•Thrust
+•Aerodynamic reference area
+•Aerodynamic force coefficients
+A.11 Stage 2 Mass Properties
+During Phase I:
+m2(t) =m 0,2= constant
+A.12 Stage 2 Inertia Properties
+The inertia tensor of Stage 2 is defined about its own center of mass in the body-fixed
+frame:
+I2=
+2.5×1060 0
+0 2.5×1060
+0 0 4.0×105
+kg·m2
+The longitudinal offset of the Stage 2 center of mass from the Stage 1 center of mass
+is:
+36
+
+--- PAGE 37 ---
+
+rcg,2=
+0
+0
++18
+m
+Positive +Zis defined along the vehicle thrust axis.
+A.13 Stacked Vehicle Mass Model (Phase I)
+The total vehicle mass during Phase I ascent is:
+mtotal(t) =m 1(t) +m 0,2
+where:
+•m 1(t) decreases due to Stage 1 propellant burn
+•m 0,2remains constant until stage separation
+This total mass must be used in all translational dynamics equations.
+A.14 Stacked Vehicle Inertia Tensor (Phase I)
+The total inertia tensor of the stacked vehicle during Phase I is computed using the
+parallel-axis theorem:
+IPhase I =I 1+I2+m 0,2 
+∥rcg,2∥2I3−rcg,2rT
+cg,2
+where:
+•I1is the Stage 1 inertia tensor
+•I2is the Stage 2 inertia tensor
+•rcg,2is the Stage 2 CG offset
+IPhase I shall be treated as constant throughout Phase I.
+This stacked inertia tensor must be used in all rotational dynamics equations prior to
+stage separation.
+A.15 Phase I Modeling Clarification (Stacked Configuration)
+For clarity:
+•Thrust is generated by Stage 1 only
+•Mass and inertia include both Stage 1 and Stage 2
+•Aerodynamic reference area corresponds to Stage 1 outer mold line
+Failure to apply the stacked configuration during Phase I invalidates the ascent dy-
+namics and control behavior.
+37
+
+--- PAGE 38 ---
+
+B Stage Separation Event Specification
+This section defines the discrete stage separation event that terminates Phase I (Stacked
+Ascent) and initiates the bifurcation into two independent mission phases: Booster RTLS
+recovery and Upper-Stage orbital ascent.
+Stage separation is modeled as an instantaneous, non-integrated event.
+B.1 Purpose
+Stage separation represents the physical and logical transition from a single stacked launch
+vehicle to two independent vehicles with distinct mission objectives. This section defines
+the state inheritance, mass and inertia reassignment, and thrust logic governing this
+event.
+B.2 Separation Trigger Conditions
+Stage separation shall occur when all of the following conditions are met:
+•Main Engine Cutoff (MECO) has been achieved
+•A stage separation command is issued
+•Structural separation constraints are satisfied
+Time-based separation is explicitly prohibited.
+B.3 Instantaneous Event Assumption
+Stage separation is treated as an instantaneous event occurring between two simulation
+timesteps. No forces, torques, or impulses are applied during separation, and no state
+integration is performed at this instant.
+B.4 State Inheritance
+At the moment of separation, the following kinematic state variables are copied identically
+to both post-separation vehicles:
+rsep,vsep,qsep,ωsep
+This ensures physical continuity and conservation of momentum.
+B.5 Creation of Independent State Vectors
+Immediately following separation, two independent state vectors are constructed.
+B.5.1 Booster (Stage 1)
+xB=
+rsep
+vsep
+qsep
+ωsep
+mB
+
+38
+
+--- PAGE 39 ---
+
+B.5.2 Upper Stage (Stage 2)
+xU=
+rsep
+vsep
+qsep
+ωsep
+mU
+
+B.6 Mass Reassignment
+At separation, vehicle masses are reassigned as follows:
+mB=m 1,residual
+mU=m 0,2
+No mass correction, impulse, or propellant transfer is permitted during the separation
+event.
+B.7 Inertia Reassignment
+Immediately after separation:
+•The booster inertia tensor shall switch from the stacked configuration to the Stage 1-
+only inertia tensor
+•The upper-stage inertia tensor shall switch from the passive payload representation
+to the active Stage 2 inertia tensor
+All inertia tensors used post-separation are defined in the configuration appendices.
+B.8 Thrust and Propulsion Logic
+At the instant of separation:
+•Booster thrust shall be set to zero
+•Upper-stage thrust shall be set to zero
+Subsequent engine ignition events are handled in Phase II guidance and control logic.
+B.9 Phase Bifurcation
+Following separation, the mission phase flags are assigned as:
+•Booster→Phase II-A: RTLS Recovery
+•Upper Stage→Phase II-B: Orbital Ascent
+From this point onward, the two vehicles are simulated independently.
+39
+
+--- PAGE 40 ---
+
+B.10 Prohibited Actions
+The following actions are explicitly prohibited during stage separation:
+•Velocity or attitude correction
+•Artificial impulse forces
+•State smoothing or filtering
+•Numerical stabilization hacks
+B.11 Validation Requirements
+The stage separation implementation is considered valid only if:
+•Both vehicles begin Phase II with identical kinematic states
+•No discontinuity exists in position or velocity
+•Thrust is zero during the separation instant
+•Momentum is conserved across the event
+40
+
+--- PAGE 41 ---
+
+C Phase II-A: Booster Return-To-Launch-Site (RTLS)
+Recovery
+This section defines the post-separation flight of the reusable booster (Stage 1) following
+stage separation. The objective of Phase II-A is to return the booster safely to the launch
+site using controlled propulsion and atmospheric flight.
+Phase II-A begins immediately after the stage separation event and operates on the
+booster state vectorx B.
+C.1 Phase II-A Objectives
+The objectives of the RTLS recovery phase are:
+•Cancel downrange horizontal velocity
+•Redirect the booster trajectory toward the launch site
+•Manage thermal and aerodynamic loads during reentry
+•Prepare the vehicle for terminal landing phases
+This phase does not include landing leg deployment or touchdown dynamics, which
+are handled in subsequent phases.
+C.2 Initial Conditions for Phase II-A
+Phase II-A begins with the booster state inherited from the stage separation event:
+xB(tsep) =
+rsep
+vsep
+qsep
+ωsep
+mB
+
+No modification of this state is permitted at Phase II-A entry.
+C.3 Phase II-A Sub-Phases
+RTLS recovery is divided into the following sub-phases:
+1. Post-Separation Coast
+2. Boostback Burn
+3. Ballistic Coast to Entry Interface
+Each sub-phase modifies guidance and propulsion logic but preserves continuous state
+evolution.
+41
+
+--- PAGE 42 ---
+
+C.4 Post-Separation Coast
+Immediately after separation, the booster enters a short ballistic coast.
+•All engines are off
+•Vehicle follows gravity-dominated trajectory
+•Attitude control maintains stability only
+This coast allows safe physical separation from the upper stage.
+C.5 Boostback Burn
+The boostback burn is initiated to reverse the downrange component of velocity and
+redirect the booster toward the launch site.
+C.5.1 Boostback Burn Trigger
+The boostback burn is initiated when:
+•A minimum separation distance is achieved
+•Attitude is aligned for retrograde thrust
+•Propellant reserves are sufficient
+C.5.2 Boostback Guidance Law
+During boostback, the commanded thrust direction is aligned opposite to the inertial
+velocity vector:
+ˆtcmd=−v
+∥v∥
+This guidance law reduces downrange velocity without introducing lateral accelera-
+tion.
+C.5.3 Boostback Thrust Logic
+During the boostback burn:
+•Thrust magnitude is commanded within engine limits
+•Thrust direction follows ˆtcmd
+•Mass flow is computed as defined in Phase I
+Boostback burn terminates when a target downrange velocity condition is satisfied.
+42
+
+--- PAGE 43 ---
+
+C.6 Ballistic Coast to Entry Interface
+Following boostback cutoff, the booster enters a ballistic coast phase.
+•Engines are off
+•Vehicle follows a gravity-dominated arc
+•Aerodynamic drag becomes significant at lower altitude
+This phase continues until the vehicle reaches the atmospheric entry interface, defined
+by a specified altitude threshold.
+C.7 Forces and Dynamics in Phase II-A
+During Phase II-A, the booster is governed by the same translational and rotational
+dynamics defined in Phase I, with the following differences:
+•Vehicle mass and inertia correspond to Stage 1 only
+•Thrust is applied only during boostback
+•Aerodynamic drag increases during descent
+No new force models are introduced in this phase.
+C.8 Phase II-A Termination
+Phase II-A terminates when the booster reaches the predefined atmospheric entry inter-
+face or recovery corridor boundary.
+Subsequent recovery phases (entry burn, landing burn, touchdown) are handled in
+later mission phases.
+C.9 Validation Requirements
+Phase II-A is considered valid only if:
+•Downrange velocity is reduced to near zero or reversed
+•Trajectory trends toward the launch site
+•No discontinuities exist in state variables
+•Propellant consumption remains within recovery budget
+43
+
+--- PAGE 44 ---
+
+D Phase II-B: Upper-Stage Orbital Ascent and In-
+sertion
+This section defines the post-separation flight of the upper stage (Stage 2) following stage
+separation. The objective of Phase II-B is to inject the payload into the target Earth
+orbit.
+Phase II-B begins immediately after the stage separation event and operates on the
+upper-stage state vectorx U.
+D.1 Phase II-B Objectives
+The objectives of the upper-stage orbital ascent phase are:
+•Safely ignite the upper-stage propulsion system
+•Increase orbital energy to reach the target orbit
+•Achieve desired orbital altitude and velocity
+•Terminate propulsion at the correct orbital conditions
+Upper-stage recovery is not considered in this phase.
+D.2 Initial Conditions for Phase II-B
+Phase II-B begins with the state inherited from the stage separation event:
+xU(tsep) =
+rsep
+vsep
+qsep
+ωsep
+mU
+
+No modification of this state is permitted at Phase II-B entry.
+D.3 Phase II-B Sub-Phases
+Upper-stage ascent is divided into the following sub-phases:
+1. Upper-Stage Ignition and Initial Stabilization
+2. Powered Orbital Ascent
+3. Orbital Cutoff (SECO)
+Each sub-phase modifies propulsion and guidance logic while preserving continuous
+state evolution.
+44
+
+--- PAGE 45 ---
+
+D.4 Upper-Stage Ignition and Stabilization
+Following separation, the upper stage performs ignition of its main engine.
+•Attitude control stabilizes the vehicle
+•Thrust is inhibited until stable attitude is achieved
+•Upper-stage engine ignition is commanded
+Ignition transients are neglected in the baseline model.
+D.5 Orbital Ascent Guidance Law
+During powered orbital ascent, the thrust direction is aligned with the instantaneous
+velocity vector to maximize orbital energy gain:
+ˆtcmd=v
+∥v∥
+This guidance law produces an efficient near-tangential burn suitable for low-Earth
+orbit insertion.
+D.6 Upper-Stage Thrust and Mass Flow
+During powered ascent:
+•Thrust is generated by the upper-stage engine only
+•Thrust magnitude is commanded within engine limits
+•Mass flow is computed using the upper-stage specific impulse
+The mass flow rate is given by:
+˙m=−T
+Isp,2g0
+D.7 Forces Acting on the Upper Stage
+During Phase II-B, the upper stage is governed by:
+•Central gravitational force
+•Thrust force (during powered ascent)
+Aerodynamic drag is neglected due to near-vacuum conditions.
+45
+
+--- PAGE 46 ---
+
+D.8 Orbital Cutoff Condition (SECO)
+Upper-stage engine cutoff (SECO) occurs when the target orbital condition is achieved.
+Typical cutoff criteria include:
+•Target orbital velocity magnitude
+•Target orbital energy
+•Target apogee altitude
+At SECO:
+T= 0⇒F thrust =0
+D.9 Post-Cutoff Orbital State
+After SECO, the upper stage enters a ballistic orbital coast governed solely by gravita-
+tional dynamics.
+The final orbital state is defined as:
+xorbit=
+r
+v
+q
+ω
+m
+
+This state serves as the initial condition for payload deployment or further orbital
+maneuvers.
+D.10 Validation Requirements
+Phase II-B is considered valid only if:
+•Orbital velocity is achieved without discontinuities
+•Mechanical energy increases monotonically during burn
+•Thrust is zero after SECO
+•Final trajectory is gravitationally bound
+46
+
+--- PAGE 47 ---
+
+A Post-Separation Vehicle Configuration
+This appendix defines the authoritative vehicle configurations immediately after the stage
+separation event. These configurations replace the stacked-vehicle parameters used during
+Phase I and must be applied atomically at separation.
+No interpolation or gradual transition is permitted.
+A.1 Configuration Switching Rule
+At the stage separation event:
+•The stacked vehicle configuration is discarded
+•Two independent vehicle configurations are activated
+•Booster and upper-stage parameters diverge permanently
+Failure to switch configuration instantaneously invalidates both RTLS and orbital
+simulations.
+A.2 Booster Configuration (Stage 1, Post-Separation)
+The booster configuration applies to Phase II-A and all subsequent recovery phases.
+A.2.1 Mass Properties
+A.2.2 Inertia Tensor
+The booster inertia tensor after separation is:
+IB=
+1.20×1070 0
+0 1.20×1070
+0 0 2.00×106
+kg·m2
+This inertia tensor replaces the stacked inertia used in Phase I.
+A.2.3 Aerodynamics
+•Reference area: same as Stage 1 ascent configuration
+•Drag coefficient:C D= 0.42 (constant)
+•Atmospheric drag model: enabled
+A.2.4 Propulsion
+•Engines active: Stage 1 engines only
+•Thrust capability: reduced set permitted for recovery burns
+•Throttle capability: enabled
+47
+
+--- PAGE 48 ---
+
+A.3 Upper-Stage Configuration (Stage 2, Post-Separation)
+The upper-stage configuration applies to Phase II-B and all orbital operations.
+A.3.1 Mass Properties
+A.3.2 Inertia Tensor
+The upper-stage inertia tensor is:
+IU=
+2.5×1060 0
+0 2.5×1060
+0 0 4.0×105
+kg·m2
+A.3.3 Aerodynamics
+•Atmospheric drag: disabled
+•Aerodynamic forces: neglected
+A.3.4 Propulsion
+•Engines active: Upper-stage main engine
+•Specific impulse:I sp,2(vacuum)
+•Throttle capability: mission-defined
+A.4 Configuration Consistency Rules
+The following rules are mandatory:
+•Booster and upper stage must never share parameters post-separation
+•No parameter blending is allowed across separation
+•Each vehicle must reference its own mass, inertia, and propulsion
+Violation of these rules invalidates all post-separation results.
+A.5 Validation Checklist
+Post-separation configuration switching is valid only if:
+•Booster mass drops discontinuously at separation
+•Upper-stage mass remains unchanged at separation
+•Inertia tensors switch atomically
+•No aerodynamic forces act on the upper stage
+48
+
+--- PAGE 49 ---
+
+Quantity Symbol Value
+Initial position r0 [RE,0,0] m
+Initial velocity v0 [0,0,0] m/s
+Initial angular velocity ω0 [0,0,0] rad/s
+Initial mass m0 m0,1
+Table 8: Initial conditions at liftoff
+Parameter Symbol Value
+Stage 2 wet mass m0,2 120,000 kg
+Stage 2 dry mass mdry,2 8,000 kg
+Stage 2 propellant mass mprop,2 112,000 kg
+Table 9: Stage 2 mass properties (mounted on Stage 1)
+Parameter Symbol Value
+Booster mass at separation mB m1,residual
+Booster dry mass mdry,1 30,000 kg
+Recovery propellant reserve mrec Included inm B
+Table 10: Booster mass configuration
+Parameter Symbol Value
+Upper-stage initial mass mU m0,2
+Upper-stage dry mass mdry,2 8,000 kg
+Upper-stage propellant mass mprop,2 112,000 kg
+Table 11: Upper-stage mass configuration
+49
+
+--- PAGE 50 ---
+
+A.16 Stage 2 Propulsion Parameters (Upper Stage)
+The following parameters define the Upper Stage engine capabilities used during Phase
+II-B (Orbital Ascent).
+Parameter Symbol Value
+Max Vacuum Thrust Tvac,2 9.5×105N (950 kN)
+Vacuum Specific Impulse Isp,2 348 s
+Throttle Range - 60%−100%
+Burn Time (Approx) tburn,2 ≈380 s
+Table 12: Stage 2 Propulsion Parameters (Placeholder Nominal Values)
+A.17 Recovery Guidance Targets (Phase II-A)
+These parameters define the logic thresholds for the Booster RTLS (Return To Launch
+Site) maneuvers.
+Parameter Symbol Value
+Boostback Target Velocity vtarget,BB −350 m/s (Inertial horizontal)
+Entry Interface Altitude hentry 60,000 m
+Min Separation Distance dsafe 500 m
+Table 13: Booster Recovery Logic Thresholds
+50
+
+--- PAGE 51 ---
+
+Appendix E: Post-Separation Vehicle Configuration
+Note: This appendix defines the authoritative vehicle configurations immediately after the
+stage separation event. It replaces the stacked parameters used in Phase I.
+51
