@@ -33,18 +33,26 @@ def compute_local_vertical(r: np.ndarray) -> np.ndarray:
 
 def compute_local_horizontal(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     """
-    Compute the local horizontal direction (velocity direction).
-    PDF Section 8.2.2: v_hat = v / ||v|| if ||v|| > 0, else r_hat
+    Compute the local horizontal direction based on AIR-RELATIVE velocity.
+    
+    This ensures we steer into the wind for zero Angle of Attack (AoA).
+    v_rel = v_inertial - (omega_earth x r)
     
     Args:
         r: Position vector in inertial frame (m)
         v: Velocity vector in inertial frame (m/s)
         
     Returns:
-        Unit vector in local horizontal direction
+        Unit vector in local horizontal (velocity) direction
     """
     vertical = compute_local_vertical(r)
-    v_norm = np.linalg.norm(v)
+    
+    # Compute Air-Relative Velocity (v_wind)
+    omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
+    v_wind = np.cross(omega_earth, r)
+    v_rel = v - v_wind
+    
+    v_norm = np.linalg.norm(v_rel)
     
     # PDF 8.2.2: Fallback to radial if velocity is zero
     if v_norm < 1e-10:
@@ -52,7 +60,7 @@ def compute_local_horizontal(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     
     # Use velocity direction for gravity turn
     # This aligns thrust with velocity for efficient energy gain
-    return v / v_norm
+    return v_rel / v_norm
 
 
 def compute_blend_parameter(altitude: float, velocity: float) -> float:
@@ -105,7 +113,12 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray,
     """
     # Compute altitude and velocity magnitude
     altitude = np.linalg.norm(r) - C.R_EARTH
-    velocity = np.linalg.norm(v)
+    
+    # Use relative velocity magnitude for checks
+    omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
+    v_wind = np.cross(omega_earth, r)
+    v_rel = v - v_wind
+    velocity = np.linalg.norm(v_rel)
     
     # Get local reference frame
     vertical = compute_local_vertical(r)  # r_hat
@@ -117,6 +130,22 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray,
     # Blended guidance (PDF Section 8.6)
     # t_cmd = (1 - alpha) * r_hat + alpha * v_hat
     thrust_dir = (1.0 - alpha) * vertical + alpha * prograde
+    
+    # Pitchover Maneuver (Deterministic Azimuth)
+    # Apply a small kick towards East (or target azimuth) at low altitude
+    # to bias the gravity turn.
+    if alpha < 0.01 and C.PITCHOVER_START_ALTITUDE <= altitude <= C.PITCHOVER_END_ALTITUDE:
+        # Define target direction (East)
+        # In this sim, East is +Y (tangential at launch site [R, 0, 0])
+        east = np.array([0.0, 1.0, 0.0])
+        
+        # Blend into the kick
+        # Simple blend: pure vertical -> vertical + kick -> pure vertical
+        # We want to TILT the thrust vector.
+        # t_cmd = r_hat * cos(theta) + east * sin(theta)
+        
+        kick_angle = C.PITCHOVER_ANGLE
+        thrust_dir = vertical * np.cos(kick_angle) + east * np.sin(kick_angle)
     
     # Normalize (PDF Section 8.6: must normalize the result)
     thrust_norm = np.linalg.norm(thrust_dir)
@@ -148,11 +177,20 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray,
     thrust_dir = compute_desired_thrust_direction(r, v, t)
     
     # Compute blend parameter for logging
-    alpha = compute_blend_parameter(altitude, velocity)
+    # Recalculate velocity relative for blend alpha
+    omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
+    v_wind = np.cross(omega_earth, r)
+    v_rel = v - v_wind
+    v_rel_norm = np.linalg.norm(v_rel)
+    
+    alpha = compute_blend_parameter(altitude, v_rel_norm)
     
     # Determine guidance phase
     if alpha < 0.01:
-        phase = "VERTICAL_ASCENT"
+        if C.PITCHOVER_START_ALTITUDE <= altitude <= C.PITCHOVER_END_ALTITUDE:
+            phase = "PITCHOVER"
+        else:
+            phase = "VERTICAL_ASCENT"
     elif alpha < 0.99:
         phase = "GRAVITY_TURN"
     else:

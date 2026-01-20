@@ -30,7 +30,8 @@ def main():
     print(f"Final altitude: {final_state.altitude/1000:.2f} km")
     print(f"Final velocity: {final_state.speed:.2f} m/s")
     print(f"Final mass: {final_state.m:.2f} kg")
-    print(f"Propellant used: {50000 - final_state.m:.2f} kg")
+    from rlv_sim import constants as C
+    print(f"Propellant used: {C.INITIAL_MASS - final_state.m:.2f} kg")
     print("="*60 + "\n")
     
     # Generate plots

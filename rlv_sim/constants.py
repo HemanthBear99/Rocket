@@ -106,20 +106,29 @@ INERTIA_TENSOR_INV = np.linalg.inv(INERTIA_TENSOR)
 # CONTROL PARAMETERS (Table 7)
 # =============================================================================
 
-# Attitude control PD gains
+# Guidance & Control Gains
+# -----------------------------------------------------------------------------
 KP_ATTITUDE = 1.2e4  # Proportional gain
 KD_ATTITUDE = 3.5e3  # Derivative gain
 
 # Maximum control torque (N·m)
 MAX_TORQUE = 2.5e6
 
+# Guidance Logic Constants
+GRAVITY_TURN_START_ALTITUDE = 1500.0  # m
+GRAVITY_TURN_TRANSITION_RANGE = 4000.0  # m
+MIN_VELOCITY_FOR_TURN = 50.0  # m/s
+
+# Pitchover Maneuver (Deterministic Azimuth)
+PITCHOVER_START_ALTITUDE = 100.0   # Start earlier
+PITCHOVER_END_ALTITUDE = 1000.0    # Original duration
+PITCHOVER_ANGLE = 2.0 * np.pi / 180.0  # 2 degrees (Sufficient with correct gains)
+PITCHOVER_AZIMUTH = 90.0 * np.pi / 180.0 # East
+
 # =============================================================================
 # GUIDANCE PARAMETERS (Table 6) - Altitude-based gravity turn
 # =============================================================================
 
-# Gravity turn parameters (altitude-based per PDF)
-GRAVITY_TURN_START_ALTITUDE = 1500.0  # m - when to start pitching over
-GRAVITY_TURN_TRANSITION_RANGE = 25000.0  # m - altitude range for transition
 MIN_VELOCITY_FOR_TURN = 150.0  # m/s - minimum velocity before starting turn
 
 # Target pitch angle at end of Phase I (rad from vertical)
@@ -139,13 +148,21 @@ MAX_TIME = 300.0
 # INITIAL CONDITIONS (A.8)
 # =============================================================================
 
+# =============================================================================
+# INITIAL CONDITIONS (A.8)
+# =============================================================================
+
 # Launch site position (inertial frame, m)
 # Positioned at Earth's surface along +X axis
 INITIAL_POSITION = np.array([R_EARTH, 0.0, 0.0])
 
+# Earth Rotation Rate (rad/s)
+EARTH_ROTATION_RATE = 7.2921159e-5
+
 # Initial velocity (inertial frame, m/s)
-# Starting at rest relative to Earth's surface
-INITIAL_VELOCITY = np.array([0.0, 0.0, 0.0])
+# Includes tangential velocity due to Earth rotation: v = omega x r
+# At equator (r = R_EARTH along X), v is along Y
+INITIAL_VELOCITY = np.array([0.0, EARTH_ROTATION_RATE * R_EARTH, 0.0])
 
 # Initial quaternion - must align body +Z with radial direction
 # Vehicle at [R_earth, 0, 0], so radial is +X axis
@@ -156,6 +173,23 @@ INITIAL_QUATERNION = np.array([np.sqrt(2)/2, 0.0, np.sqrt(2)/2, 0.0])
 
 # Initial angular velocity (body frame, rad/s)
 INITIAL_OMEGA = np.array([0.0, 0.0, 0.0])
+
+# =============================================================================
+# PHYSICS CONSTANTS FOR HIGH FIDELITY MODEL
+# =============================================================================
+
+# Thermodynamics
+GAMMA = 1.4      # Adiabatic index for air
+R_GAS = 287.05   # Specific gas constant (J/(kg·K))
+
+# Aerodynamics - Drag Coefficient vs Mach Number
+# Simple look-up table for Cd(Mach)
+MACH_BREAKPOINTS = np.array([0.0, 0.8, 1.05, 1.3, 2.0, 5.0, 10.0, 25.0])
+CD_VALUES = np.array([0.42, 0.42, 0.75, 0.65, 0.50, 0.35, 0.25, 0.20])
+
+# Propulsion - Vacuum Isp
+ISP_VAC = 311.0  # Vacuum specific impulse (s)
+# ISP (Sea Level) is defined above as 282.0
 
 # =============================================================================
 # VALIDATION TOLERANCES
