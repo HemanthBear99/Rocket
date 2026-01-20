@@ -221,3 +221,7 @@ def run_simulation(dt: float = None, max_time: float = None,
 
     return state, log, reason
 
+
+if __name__ == "__main__":
+    run_simulation()
+
