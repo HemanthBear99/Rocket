@@ -385,6 +385,87 @@ def plot_thrust_acceleration(log, save_dir):
     return path
 
 
+def plot_flight_path_angle(log, save_dir):
+    """Plot flight path angle - shows the gravity turn from vertical to horizontal."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    t = np.array(log.time)
+    x = np.array(log.position_x)
+    y = np.array(log.position_y)
+    z = np.array(log.position_z)
+    
+    # Compute velocity components from position derivatives
+    vx = np.gradient(x, t)
+    vy = np.gradient(y, t)
+    vz = np.gradient(z, t)
+    
+    # Compute radial direction (local vertical) at each point
+    r = np.sqrt(x**2 + y**2 + z**2)
+    rx, ry, rz = x/r, y/r, z/r  # Unit radial vector
+    
+    # Radial (vertical) velocity component
+    v_radial = vx*rx + vy*ry + vz*rz
+    
+    # Total velocity magnitude
+    v_total = np.sqrt(vx**2 + vy**2 + vz**2)
+    
+    # Flight path angle = angle of velocity from local horizontal
+    # Positive = climbing, Negative = descending, 0 = horizontal
+    flight_path_angle = np.degrees(np.arcsin(np.clip(v_radial / v_total, -1, 1)))
+    
+    # Main plot
+    ax.plot(t, flight_path_angle, 'b-', linewidth=2.5, label='Flight Path Angle γ')
+    
+    # Reference lines
+    ax.axhline(y=90, color='green', linestyle='--', alpha=0.5, label='Pure Vertical (90°)')
+    ax.axhline(y=0, color='red', linestyle='--', alpha=0.5, label='Horizontal (0°)')
+    
+    # Mark key events
+    ax.scatter(t[0], flight_path_angle[0], c='green', s=150, marker='o', 
+               zorder=5, edgecolors='black', label=f'Liftoff (γ={flight_path_angle[0]:.1f}°)')
+    ax.scatter(t[-1], flight_path_angle[-1], c='red', s=150, marker='X', 
+               zorder=5, edgecolors='black', label=f'MECO (γ={flight_path_angle[-1]:.1f}°)')
+    
+    # Mark max flight path angle
+    max_idx = np.argmax(flight_path_angle)
+    ax.scatter(t[max_idx], flight_path_angle[max_idx], c='orange', s=120, marker='D',
+               zorder=5, edgecolors='black', label=f'Peak (γ={flight_path_angle[max_idx]:.1f}°)')
+    
+    # Annotate gravity turn region
+    gt_idx = np.argmax(np.array(log.altitude) > C.GRAVITY_TURN_START_ALTITUDE/1000)
+    if gt_idx > 0:
+        ax.axvline(x=t[gt_idx], color='purple', linestyle=':', alpha=0.7)
+        ax.annotate('Gravity Turn\nStart', xy=(t[gt_idx], flight_path_angle[gt_idx]),
+                    xytext=(t[gt_idx]+15, flight_path_angle[gt_idx]-15),
+                    fontsize=10, color='purple',
+                    arrowprops=dict(arrowstyle='->', color='purple', alpha=0.7))
+    
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Flight Path Angle γ (°)')
+    ax.set_title('Flight Path Angle Evolution\n(γ = angle of velocity from local horizontal)')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='lower right', fontsize=9)
+    ax.set_xlim([0, max(t)])
+    ax.set_ylim([-5, 100])
+    
+    # Add explanation text
+    ax.text(0.02, 0.98, 
+            'Physics Explanation:\n'
+            '• At liftoff, inertial velocity is tangential (Earth rotation ~465 m/s)\n'
+            '• Thrust adds vertical velocity → γ increases (climbing steeper)\n'
+            '• After peak, gravity turn bends trajectory → γ decreases\n'
+            '• For orbit: γ → 0° (purely horizontal velocity)',
+            transform=ax.transAxes, fontsize=8, 
+            verticalalignment='top', 
+            bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9))
+    
+    path = os.path.join(save_dir, '11_flight_path_angle.png')
+    plt.savefig(path)
+    print(f"Saved: {path}")
+    plt.close()
+    return path
+
+
 def generate_all_plots(log, final_state, save_dir):
     """Generate all publication-quality plots."""
     os.makedirs(save_dir, exist_ok=True)
@@ -405,6 +486,7 @@ def generate_all_plots(log, final_state, save_dir):
     saved.append(plot_trajectory_3d_local(log, save_dir))
     saved.append(plot_altitude_vs_velocity(log, save_dir))
     saved.append(plot_thrust_acceleration(log, save_dir))
+    saved.append(plot_flight_path_angle(log, save_dir))  # NEW
     
     print(f"\n✓ Generated {len(saved)} publication-ready plots")
     return saved
@@ -414,3 +496,4 @@ if __name__ == "__main__":
     print("Running standalone plot generation...")
     final_state, log, reason = run_simulation(verbose=True)
     generate_all_plots(log, final_state, 'plots')
+
