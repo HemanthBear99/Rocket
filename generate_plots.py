@@ -1,7 +1,8 @@
 """
-RLV Phase-I Ascent Simulation - Generate and Save All Plots
+RLV Phase-I Ascent Simulation - Publication-Quality Plot Generation
 
-This script runs the simulation and generates comprehensive visualizations.
+Generates individual, publication-ready figures for research papers.
+Each plot is saved as a separate high-resolution PNG file.
 """
 
 import sys
@@ -15,388 +16,401 @@ from mpl_toolkits.mplot3d import Axes3D
 from rlv_sim import run_simulation
 from rlv_sim import constants as C
 
-
-def plot_altitude_velocity(log, save_dir):
-    """Plot altitude and velocity profiles."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle('Altitude and Velocity Profiles', fontsize=14, fontweight='bold')
-    
-    # Altitude vs Time
-    ax1.plot(log.time, log.altitude, 'b-', linewidth=2)
-    ax1.fill_between(log.time, 0, log.altitude, alpha=0.3)
-    ax1.set_xlabel('Time (s)', fontsize=12)
-    ax1.set_ylabel('Altitude (km)', fontsize=12)
-    ax1.set_title('Altitude Profile')
-    ax1.grid(True, alpha=0.3)
-    ax1.set_xlim([0, max(log.time)])
-    ax1.set_ylim([0, None])
-    
-    # Velocity vs Time
-    ax2.plot(log.time, log.velocity, 'r-', linewidth=2)
-    ax2.fill_between(log.time, 0, log.velocity, alpha=0.3, color='red')
-    ax2.set_xlabel('Time (s)', fontsize=12)
-    ax2.set_ylabel('Velocity (m/s)', fontsize=12)
-    ax2.set_title('Velocity Profile')
-    ax2.grid(True, alpha=0.3)
-    ax2.set_xlim([0, max(log.time)])
-    ax2.set_ylim([0, None])
-    
-    plt.tight_layout()
-    path = os.path.join(save_dir, 'altitude_velocity.png')
-    plt.savefig(path, dpi=150, bbox_inches='tight')
-    print(f"Saved: {path}")
-    plt.close()
-    return path
+# Publication style settings
+plt.rcParams.update({
+    'font.size': 12,
+    'font.family': 'serif',
+    'axes.labelsize': 14,
+    'axes.titlesize': 14,
+    'legend.fontsize': 11,
+    'xtick.labelsize': 11,
+    'ytick.labelsize': 11,
+    'figure.dpi': 150,
+    'savefig.dpi': 300,
+    'savefig.bbox': 'tight',
+})
 
 
-def plot_mass_propellant(log, save_dir):
-    """Plot mass and propellant consumption."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle('Mass and Propellant Profiles', fontsize=14, fontweight='bold')
+def plot_altitude_profile(log, save_dir):
+    """Plot altitude vs time with key flight events."""
+    fig, ax = plt.subplots(figsize=(8, 5))
     
-    # Mass vs Time
-    ax1.plot(log.time, log.mass, 'g-', linewidth=2)
-    ax1.axhline(y=C.DRY_MASS, color='r', linestyle='--', label=f'Dry Mass ({C.DRY_MASS} kg)')
-    ax1.fill_between(log.time, C.DRY_MASS, log.mass, alpha=0.3, color='green')
-    ax1.set_xlabel('Time (s)', fontsize=12)
-    ax1.set_ylabel('Mass (kg)', fontsize=12)
-    ax1.set_title('Total Mass')
-    ax1.grid(True, alpha=0.3)
-    ax1.legend()
-    ax1.set_xlim([0, max(log.time)])
+    t = np.array(log.time)
+    alt = np.array(log.altitude)
     
-    # Propellant fraction vs Time
-    propellant_fraction = [(m - C.DRY_MASS) / C.PROPELLANT_MASS * 100 for m in log.mass]
-    ax2.plot(log.time, propellant_fraction, 'm-', linewidth=2)
-    ax2.fill_between(log.time, 0, propellant_fraction, alpha=0.3, color='magenta')
-    ax2.set_xlabel('Time (s)', fontsize=12)
-    ax2.set_ylabel('Propellant Remaining (%)', fontsize=12)
-    ax2.set_title('Propellant Consumption')
-    ax2.grid(True, alpha=0.3)
-    ax2.set_xlim([0, max(log.time)])
-    ax2.set_ylim([0, 100])
+    ax.plot(t, alt, 'b-', linewidth=2, label='Altitude')
+    ax.fill_between(t, 0, alt, alpha=0.2)
     
-    plt.tight_layout()
-    path = os.path.join(save_dir, 'mass_propellant.png')
-    plt.savefig(path, dpi=150, bbox_inches='tight')
-    print(f"Saved: {path}")
-    plt.close()
-    return path
-
-
-def plot_guidance_control(log, save_dir):
-    """Plot guidance and control parameters."""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle('Guidance and Control', fontsize=14, fontweight='bold')
+    # Mark key events
+    ax.scatter(t[0], alt[0], c='green', s=100, marker='o', zorder=5, label='Liftoff')
+    ax.scatter(t[-1], alt[-1], c='red', s=100, marker='X', zorder=5, label=f'MECO ({alt[-1]:.1f} km)')
     
-    # Pitch Angle vs Time
-    ax = axes[0, 0]
-    ax.plot(log.time, log.pitch_angle, 'b-', linewidth=2)
-    ax.axhline(y=45, color='r', linestyle='--', alpha=0.5, label='Target (45°)')
-    ax.set_xlabel('Time (s)', fontsize=12)
-    ax.set_ylabel('Pitch Angle (deg)', fontsize=12)
-    ax.set_title('Guidance Pitch Angle')
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Altitude (km)')
+    ax.set_title('Altitude Profile')
     ax.grid(True, alpha=0.3)
-    ax.legend()
-    ax.set_xlim([0, max(log.time)])
+    ax.legend(loc='lower right')
+    ax.set_xlim([0, max(t)])
+    ax.set_ylim([0, None])
     
-    # Attitude Error vs Time
-    ax = axes[0, 1]
-    ax.plot(log.time, log.attitude_error, 'c-', linewidth=1)
-    ax.set_xlabel('Time (s)', fontsize=12)
-    ax.set_ylabel('Attitude Error (deg)', fontsize=12)
+    path = os.path.join(save_dir, '01_altitude_profile.png')
+    plt.savefig(path)
+    print(f"Saved: {path}")
+    plt.close()
+    return path
+
+
+def plot_velocity_profile(log, save_dir):
+    """Plot velocity vs time (both inertial and relative)."""
+    fig, ax = plt.subplots(figsize=(8, 5))
+    
+    t = np.array(log.time)
+    v_inertial = np.array(log.velocity)
+    
+    # Calculate relative velocity (subtract Earth rotation component)
+    # v_rel ≈ v_inertial - 465 m/s (at equator)
+    v_initial = v_inertial[0]  # Earth rotation contribution
+    v_relative = v_inertial - v_initial
+    
+    ax.plot(t, v_relative, 'r-', linewidth=2, label='Velocity (relative to launch site)')
+    ax.fill_between(t, 0, v_relative, alpha=0.2, color='red')
+    
+    # Mark key events
+    ax.scatter(t[0], v_relative[0], c='green', s=100, marker='o', zorder=5, label='Liftoff (v=0)')
+    ax.scatter(t[-1], v_relative[-1], c='red', s=100, marker='X', zorder=5, 
+               label=f'MECO ({v_relative[-1]:.0f} m/s)')
+    
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Velocity (m/s)')
+    ax.set_title('Velocity Profile (Relative to Launch Site)')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='lower right')
+    ax.set_xlim([0, max(t)])
+    ax.set_ylim([0, None])
+    
+    path = os.path.join(save_dir, '02_velocity_profile.png')
+    plt.savefig(path)
+    print(f"Saved: {path}")
+    plt.close()
+    return path
+
+
+def plot_mass_profile(log, save_dir):
+    """Plot mass consumption over time."""
+    fig, ax = plt.subplots(figsize=(8, 5))
+    
+    t = np.array(log.time)
+    mass = np.array(log.mass)
+    
+    ax.plot(t, mass/1000, 'g-', linewidth=2, label='Vehicle Mass')
+    ax.axhline(y=C.DRY_MASS/1000, color='r', linestyle='--', linewidth=1.5, 
+               label=f'Dry Mass ({C.DRY_MASS/1000:.0f} t)')
+    ax.fill_between(t, C.DRY_MASS/1000, mass/1000, alpha=0.3, color='green', label='Propellant')
+    
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Mass (tonnes)')
+    ax.set_title('Mass Profile')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='upper right')
+    ax.set_xlim([0, max(t)])
+    
+    path = os.path.join(save_dir, '03_mass_profile.png')
+    plt.savefig(path)
+    print(f"Saved: {path}")
+    plt.close()
+    return path
+
+
+def plot_pitch_angle(log, save_dir):
+    """Plot guidance pitch angle over time."""
+    fig, ax = plt.subplots(figsize=(8, 5))
+    
+    t = np.array(log.time)
+    pitch = np.array(log.pitch_angle)
+    
+    ax.plot(t, pitch, 'purple', linewidth=2)
+    
+    # Mark guidance phases
+    # Find pitchover region (approximate)
+    pitchover_idx = np.argmax(np.array(log.altitude) * 1000 > C.PITCHOVER_START_ALTITUDE)
+    gravity_turn_idx = np.argmax(np.array(log.altitude) * 1000 > C.GRAVITY_TURN_START_ALTITUDE)
+    
+    if pitchover_idx > 0:
+        ax.axvline(x=t[pitchover_idx], color='orange', linestyle=':', alpha=0.7, label='Pitchover Start')
+    if gravity_turn_idx > 0:
+        ax.axvline(x=t[gravity_turn_idx], color='blue', linestyle=':', alpha=0.7, label='Gravity Turn Start')
+    
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Pitch Angle (°)')
+    ax.set_title('Guidance Pitch Angle from Vertical')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='upper right')
+    ax.set_xlim([0, max(t)])
+    ax.set_ylim([0, None])
+    
+    path = os.path.join(save_dir, '04_pitch_angle.png')
+    plt.savefig(path)
+    print(f"Saved: {path}")
+    plt.close()
+    return path
+
+
+def plot_attitude_error(log, save_dir):
+    """Plot attitude tracking error."""
+    fig, ax = plt.subplots(figsize=(8, 5))
+    
+    t = np.array(log.time)
+    error = np.array(log.attitude_error)
+    
+    ax.plot(t, error, 'c-', linewidth=1.5)
+    ax.axhline(y=1.0, color='r', linestyle='--', alpha=0.5, label='1° threshold')
+    
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Attitude Error (°)')
     ax.set_title('Attitude Tracking Error')
     ax.grid(True, alpha=0.3)
-    ax.set_xlim([0, max(log.time)])
-    
-    # Control Torque vs Time
-    ax = axes[1, 0]
-    ax.plot(log.time, log.torque_magnitude, 'orange', linewidth=1)
-    ax.axhline(y=C.MAX_TORQUE, color='r', linestyle='--', alpha=0.5, label=f'Saturation ({C.MAX_TORQUE} Nm)')
-    ax.set_xlabel('Time (s)', fontsize=12)
-    ax.set_ylabel('Torque Magnitude (Nm)', fontsize=12)
-    ax.set_title('Control Torque')
-    ax.grid(True, alpha=0.3)
     ax.legend()
-    ax.set_xlim([0, max(log.time)])
+    ax.set_xlim([0, max(t)])
+    ax.set_ylim([0, max(error) * 1.1])
     
-    # Quaternion Norm vs Time
-    ax = axes[1, 1]
-    ax.plot(log.time, log.quaternion_norm, 'k-', linewidth=1)
-    ax.axhline(y=1.0, color='r', linestyle='--', alpha=0.5, label='Unit norm')
-    ax.set_xlabel('Time (s)', fontsize=12)
-    ax.set_ylabel('Quaternion Norm', fontsize=12)
-    ax.set_title('Quaternion Norm (Validation)')
-    ax.set_ylim([0.9999, 1.0001])
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    ax.set_xlim([0, max(log.time)])
-    
-    plt.tight_layout()
-    path = os.path.join(save_dir, 'guidance_control.png')
-    plt.savefig(path, dpi=150, bbox_inches='tight')
+    path = os.path.join(save_dir, '05_attitude_error.png')
+    plt.savefig(path)
     print(f"Saved: {path}")
     plt.close()
     return path
 
 
-def plot_trajectory_2d(log, save_dir):
-    """Plot 2D trajectory projections."""
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    fig.suptitle('2D Trajectory Projections', fontsize=14, fontweight='bold')
+def plot_control_torque(log, save_dir):
+    """Plot control torque magnitude."""
+    fig, ax = plt.subplots(figsize=(8, 5))
     
-    # Convert to km
-    x = np.array(log.position_x) / 1000
-    y = np.array(log.position_y) / 1000
-    z = np.array(log.position_z) / 1000
+    t = np.array(log.time)
+    torque = np.array(log.torque_magnitude) / 1e6  # Convert to MN·m
     
-    # X-Y projection
-    ax = axes[0]
-    ax.plot(x, y, 'b-', linewidth=1.5)
-    ax.scatter(x[0], y[0], c='g', s=100, marker='o', zorder=5, label='Start')
-    ax.scatter(x[-1], y[-1], c='r', s=100, marker='x', zorder=5, label='MECO')
-    # Earth circle
-    theta = np.linspace(0, 2*np.pi, 100)
-    R = C.R_EARTH / 1000
-    ax.plot(R*np.cos(theta), R*np.sin(theta), 'b--', alpha=0.3, label='Earth surface')
-    ax.set_xlabel('X (km)', fontsize=12)
-    ax.set_ylabel('Y (km)', fontsize=12)
-    ax.set_title('X-Y Plane')
-    ax.axis('equal')
+    ax.plot(t, torque, 'orange', linewidth=1.5)
+    ax.axhline(y=C.MAX_TORQUE/1e6, color='r', linestyle='--', alpha=0.7, 
+               label=f'Saturation ({C.MAX_TORQUE/1e6:.1f} MN·m)')
+    
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Control Torque (MN·m)')
+    ax.set_title('Control Torque Magnitude')
     ax.grid(True, alpha=0.3)
     ax.legend()
+    ax.set_xlim([0, max(t)])
+    ax.set_ylim([0, None])
     
-    # X-Z projection
-    ax = axes[1]
-    ax.plot(x, z, 'b-', linewidth=1.5)
-    ax.scatter(x[0], z[0], c='g', s=100, marker='o', zorder=5, label='Start')
-    ax.scatter(x[-1], z[-1], c='r', s=100, marker='x', zorder=5, label='MECO')
-    ax.plot(R*np.cos(theta), R*np.sin(theta), 'b--', alpha=0.3)
-    ax.set_xlabel('X (km)', fontsize=12)
-    ax.set_ylabel('Z (km)', fontsize=12)
-    ax.set_title('X-Z Plane')
-    ax.axis('equal')
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    
-    # Y-Z projection
-    ax = axes[2]
-    ax.plot(y, z, 'b-', linewidth=1.5)
-    ax.scatter(y[0], z[0], c='g', s=100, marker='o', zorder=5, label='Start')
-    ax.scatter(y[-1], z[-1], c='r', s=100, marker='x', zorder=5, label='MECO')
-    ax.plot(R*np.cos(theta), R*np.sin(theta), 'b--', alpha=0.3)
-    ax.set_xlabel('Y (km)', fontsize=12)
-    ax.set_ylabel('Z (km)', fontsize=12)
-    ax.set_title('Y-Z Plane')
-    ax.axis('equal')
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    
-    plt.tight_layout()
-    path = os.path.join(save_dir, 'trajectory_2d.png')
-    plt.savefig(path, dpi=150, bbox_inches='tight')
+    path = os.path.join(save_dir, '06_control_torque.png')
+    plt.savefig(path)
     print(f"Saved: {path}")
     plt.close()
     return path
 
 
-def plot_trajectory_3d(log, save_dir):
-    """Plot 3D trajectory with Earth."""
-    fig = plt.figure(figsize=(12, 10))
-    ax = fig.add_subplot(111, projection='3d')
+def plot_trajectory_local(log, save_dir):
+    """Plot trajectory in local coordinates (downrange vs altitude)."""
+    fig, ax = plt.subplots(figsize=(10, 6))
     
-    # Convert to km
-    x = np.array(log.position_x) / 1000
-    y = np.array(log.position_y) / 1000
-    z = np.array(log.position_z) / 1000
+    # Convert position to local coordinates (relative to launch site)
+    x = np.array(log.position_x)
+    y = np.array(log.position_y)
+    z = np.array(log.position_z)
+    t = np.array(log.time)
     
-    # Color trajectory by time
-    colors = plt.cm.viridis(np.linspace(0, 1, len(x)))
-    for i in range(len(x)-1):
-        ax.plot(x[i:i+2], y[i:i+2], z[i:i+2], c=colors[i], linewidth=2)
+    # Initial position (launch site)
+    x0, y0, z0 = x[0], y[0], z[0]
     
-    # Start and end markers
-    ax.scatter(x[0], y[0], z[0], c='lime', s=200, marker='o', label='Liftoff', edgecolors='black')
-    ax.scatter(x[-1], y[-1], z[-1], c='red', s=200, marker='X', label='MECO', edgecolors='black')
+    # Local displacements (in km)
+    dx = (x - x0) / 1000
+    dy = (y - y0) / 1000
+    dz = (z - z0) / 1000
     
-    # Plot Earth sphere
-    u = np.linspace(0, 2 * np.pi, 50)
-    v = np.linspace(0, np.pi, 50)
-    R = C.R_EARTH / 1000
-    xe = R * np.outer(np.cos(u), np.sin(v))
-    ye = R * np.outer(np.sin(u), np.sin(v))
-    ze = R * np.outer(np.ones(np.size(u)), np.cos(v))
-    ax.plot_surface(xe, ye, ze, alpha=0.2, color='blue', edgecolor='none')
-    
-    ax.set_xlabel('X (km)', fontsize=12)
-    ax.set_ylabel('Y (km)', fontsize=12)
-    ax.set_zlabel('Z (km)', fontsize=12)
-    ax.set_title('3D Trajectory (Color = Time)', fontsize=14, fontweight='bold')
-    ax.legend(loc='upper left')
-    
-    # Add colorbar
-    sm = plt.cm.ScalarMappable(cmap='viridis', norm=plt.Normalize(vmin=0, vmax=max(log.time)))
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, shrink=0.5, aspect=20, pad=0.1)
-    cbar.set_label('Time (s)', fontsize=12)
-    
-    plt.tight_layout()
-    path = os.path.join(save_dir, 'trajectory_3d.png')
-    plt.savefig(path, dpi=150, bbox_inches='tight')
-    print(f"Saved: {path}")
-    plt.close()
-    return path
-
-
-def plot_flight_summary(log, final_state, save_dir):
-    """Create a summary dashboard plot."""
-    fig = plt.figure(figsize=(16, 12))
-    fig.suptitle('RLV Phase-I Ascent Simulation - Flight Summary', fontsize=16, fontweight='bold')
-    
-    # Create grid
-    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+    # Downrange = horizontal distance from launch site
+    downrange = np.sqrt(dy**2 + dz**2)
     
     # Altitude
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax1.plot(log.time, log.altitude, 'b-', linewidth=2)
-    ax1.fill_between(log.time, 0, log.altitude, alpha=0.3)
-    ax1.set_xlabel('Time (s)')
-    ax1.set_ylabel('Altitude (km)')
-    ax1.set_title('Altitude')
-    ax1.grid(True, alpha=0.3)
+    alt = np.array(log.altitude)
     
-    # Velocity
-    ax2 = fig.add_subplot(gs[0, 1])
-    ax2.plot(log.time, log.velocity, 'r-', linewidth=2)
-    ax2.fill_between(log.time, 0, log.velocity, alpha=0.3, color='red')
-    ax2.set_xlabel('Time (s)')
-    ax2.set_ylabel('Velocity (m/s)')
-    ax2.set_title('Velocity')
-    ax2.grid(True, alpha=0.3)
+    # Plot with time coloring
+    scatter = ax.scatter(downrange, alt, c=t, cmap='viridis', s=3)
+    ax.plot(downrange, alt, 'b-', alpha=0.3, linewidth=1)
     
-    # Mass
-    ax3 = fig.add_subplot(gs[0, 2])
-    ax3.plot(log.time, log.mass, 'g-', linewidth=2)
-    ax3.axhline(y=C.DRY_MASS, color='r', linestyle='--', alpha=0.5)
-    ax3.fill_between(log.time, C.DRY_MASS, log.mass, alpha=0.3, color='green')
-    ax3.set_xlabel('Time (s)')
-    ax3.set_ylabel('Mass (kg)')
-    ax3.set_title('Mass')
-    ax3.grid(True, alpha=0.3)
+    # Mark events
+    ax.scatter(downrange[0], alt[0], c='lime', s=150, marker='o', 
+               edgecolors='black', zorder=5, label='Liftoff')
+    ax.scatter(downrange[-1], alt[-1], c='red', s=150, marker='X', 
+               edgecolors='black', zorder=5, label='MECO')
     
-    # Pitch angle
-    ax4 = fig.add_subplot(gs[1, 0])
-    ax4.plot(log.time, log.pitch_angle, 'purple', linewidth=2)
-    ax4.set_xlabel('Time (s)')
-    ax4.set_ylabel('Pitch (deg)')
-    ax4.set_title('Guidance Pitch')
-    ax4.grid(True, alpha=0.3)
+    # Mark gravity turn
+    gt_idx = np.argmax(alt > C.GRAVITY_TURN_START_ALTITUDE/1000)
+    if gt_idx > 0:
+        ax.scatter(downrange[gt_idx], alt[gt_idx], c='orange', s=100, marker='s',
+                   edgecolors='black', zorder=5, label='Gravity Turn Start')
     
-    # Attitude error
-    ax5 = fig.add_subplot(gs[1, 1])
-    ax5.plot(log.time, log.attitude_error, 'c-', linewidth=1)
-    ax5.set_xlabel('Time (s)')
-    ax5.set_ylabel('Error (deg)')
-    ax5.set_title('Attitude Error')
-    ax5.grid(True, alpha=0.3)
+    ax.set_xlabel('Downrange Distance (km)')
+    ax.set_ylabel('Altitude (km)')
+    ax.set_title('Trajectory: Altitude vs Downrange')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='lower right')
+    ax.set_xlim([0, None])
+    ax.set_ylim([0, None])
     
-    # Torque
-    ax6 = fig.add_subplot(gs[1, 2])
-    ax6.plot(log.time, log.torque_magnitude, 'orange', linewidth=1)
-    ax6.set_xlabel('Time (s)')
-    ax6.set_ylabel('Torque (Nm)')
-    ax6.set_title('Control Torque')
-    ax6.grid(True, alpha=0.3)
+    cbar = fig.colorbar(scatter, ax=ax)
+    cbar.set_label('Time (s)')
     
-    # 3D trajectory (spanning bottom row)
-    ax7 = fig.add_subplot(gs[2, :], projection='3d')
-    x = np.array(log.position_x) / 1000
-    y = np.array(log.position_y) / 1000
-    z = np.array(log.position_z) / 1000
-    ax7.plot(x, y, z, 'b-', linewidth=1.5)
-    ax7.scatter(x[0], y[0], z[0], c='g', s=100, marker='o')
-    ax7.scatter(x[-1], y[-1], z[-1], c='r', s=100, marker='x')
+    path = os.path.join(save_dir, '07_trajectory_local.png')
+    plt.savefig(path)
+    print(f"Saved: {path}")
+    plt.close()
+    return path
+
+
+def plot_trajectory_3d_local(log, save_dir):
+    """Plot 3D trajectory in local coordinates."""
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
     
-    # Earth
-    u = np.linspace(0, 2 * np.pi, 30)
-    v = np.linspace(0, np.pi, 30)
-    R = C.R_EARTH / 1000
-    xe = R * np.outer(np.cos(u), np.sin(v))
-    ye = R * np.outer(np.sin(u), np.sin(v))
-    ze = R * np.outer(np.ones(np.size(u)), np.cos(v))
-    ax7.plot_surface(xe, ye, ze, alpha=0.15, color='blue')
+    # Convert to local coordinates (km)
+    x = np.array(log.position_x)
+    y = np.array(log.position_y)
+    z = np.array(log.position_z)
+    t = np.array(log.time)
     
-    ax7.set_xlabel('X (km)')
-    ax7.set_ylabel('Y (km)')
-    ax7.set_zlabel('Z (km)')
-    ax7.set_title('3D Trajectory')
+    x_local = (x - x[0]) / 1000
+    y_local = (y - y[0]) / 1000
+    z_local = (z - z[0]) / 1000
     
-    plt.tight_layout()
-    path = os.path.join(save_dir, 'flight_summary.png')
-    plt.savefig(path, dpi=150, bbox_inches='tight')
+    # Color trajectory by time
+    colors = plt.cm.viridis(np.linspace(0, 1, len(x_local)))
+    for i in range(len(x_local)-1):
+        ax.plot(x_local[i:i+2], y_local[i:i+2], z_local[i:i+2], 
+                c=colors[i], linewidth=2)
+    
+    # Markers
+    ax.scatter(0, 0, 0, c='lime', s=200, marker='o', 
+               label='Liftoff', edgecolors='black')
+    ax.scatter(x_local[-1], y_local[-1], z_local[-1], c='red', s=200, 
+               marker='X', label='MECO', edgecolors='black')
+    
+    ax.set_xlabel('Radial (km)')
+    ax.set_ylabel('East (km)')
+    ax.set_zlabel('North (km)')
+    ax.set_title('3D Trajectory (Local Coordinates)')
+    ax.legend(loc='upper left')
+    
+    # Colorbar
+    sm = plt.cm.ScalarMappable(cmap='viridis', norm=plt.Normalize(vmin=0, vmax=max(t)))
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, shrink=0.6, pad=0.1)
+    cbar.set_label('Time (s)')
+    
+    path = os.path.join(save_dir, '08_trajectory_3d_local.png')
+    plt.savefig(path)
     print(f"Saved: {path}")
     plt.close()
     return path
 
 
 def plot_altitude_vs_velocity(log, save_dir):
-    """Plot altitude vs velocity (phase portrait style)."""
-    fig, ax = plt.subplots(figsize=(10, 8))
+    """Plot altitude vs velocity phase space."""
+    fig, ax = plt.subplots(figsize=(8, 6))
     
-    # Color by time
-    scatter = ax.scatter(log.velocity, log.altitude, c=log.time, cmap='viridis', s=2)
-    ax.plot(log.velocity, log.altitude, 'b-', alpha=0.3, linewidth=0.5)
+    t = np.array(log.time)
+    alt = np.array(log.altitude)
+    vel = np.array(log.velocity)
     
-    # Mark key points
-    ax.scatter(log.velocity[0], log.altitude[0], c='lime', s=200, marker='o', 
+    # Use relative velocity
+    v_relative = vel - vel[0]
+    
+    scatter = ax.scatter(v_relative, alt, c=t, cmap='viridis', s=5)
+    ax.plot(v_relative, alt, 'b-', alpha=0.2, linewidth=0.5)
+    
+    ax.scatter(v_relative[0], alt[0], c='lime', s=200, marker='o', 
                edgecolors='black', zorder=5, label='Liftoff')
-    ax.scatter(log.velocity[-1], log.altitude[-1], c='red', s=200, marker='X', 
+    ax.scatter(v_relative[-1], alt[-1], c='red', s=200, marker='X', 
                edgecolors='black', zorder=5, label='MECO')
     
-    ax.set_xlabel('Velocity (m/s)', fontsize=12)
-    ax.set_ylabel('Altitude (km)', fontsize=12)
-    ax.set_title('Altitude vs Velocity', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Velocity Gained (m/s)')
+    ax.set_ylabel('Altitude (km)')
+    ax.set_title('Altitude vs Velocity (Phase Space)')
     ax.grid(True, alpha=0.3)
     ax.legend()
+    ax.set_xlim([0, None])
+    ax.set_ylim([0, None])
     
     cbar = fig.colorbar(scatter, ax=ax)
-    cbar.set_label('Time (s)', fontsize=12)
+    cbar.set_label('Time (s)')
     
-    plt.tight_layout()
-    path = os.path.join(save_dir, 'altitude_vs_velocity.png')
-    plt.savefig(path, dpi=150, bbox_inches='tight')
+    path = os.path.join(save_dir, '09_altitude_vs_velocity.png')
+    plt.savefig(path)
+    print(f"Saved: {path}")
+    plt.close()
+    return path
+
+
+def plot_thrust_acceleration(log, save_dir):
+    """Plot thrust and gravity accelerations."""
+    fig, ax = plt.subplots(figsize=(8, 5))
+    
+    t = np.array(log.time)
+    mass = np.array(log.mass)
+    alt = np.array(log.altitude) * 1000  # Convert to meters
+    
+    # Thrust acceleration (approximate - assumes constant thrust)
+    # In reality this varies with altitude due to Isp changes
+    thrust_accel = C.THRUST_MAGNITUDE / mass
+    
+    # Gravity acceleration
+    r = C.R_EARTH + alt
+    gravity_accel = C.MU_EARTH / r**2
+    
+    # Net acceleration
+    net_accel = thrust_accel - gravity_accel
+    
+    ax.plot(t, thrust_accel, 'r-', linewidth=2, label='Thrust Acceleration')
+    ax.plot(t, gravity_accel, 'b-', linewidth=2, label='Gravity')
+    ax.plot(t, net_accel, 'g--', linewidth=1.5, label='Net (vertical component)')
+    ax.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
+    
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Acceleration (m/s²)')
+    ax.set_title('Thrust vs Gravity Acceleration')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    ax.set_xlim([0, max(t)])
+    
+    path = os.path.join(save_dir, '10_thrust_vs_gravity.png')
+    plt.savefig(path)
     print(f"Saved: {path}")
     plt.close()
     return path
 
 
 def generate_all_plots(log, final_state, save_dir):
-    """Generate all standard plots from simulation log."""
-    print("\n" + "="*70)
-    print("Generating Standard Plots...")
-    print("="*70)
-    
+    """Generate all publication-quality plots."""
     os.makedirs(save_dir, exist_ok=True)
-    print(f"Saving to: {save_dir}\n")
     
-    saved_plots = []
+    print("\n" + "="*60)
+    print("Generating Publication-Quality Plots")
+    print("="*60)
+    print(f"Output directory: {save_dir}\n")
     
-    saved_plots.append(plot_altitude_velocity(log, save_dir))
-    saved_plots.append(plot_mass_propellant(log, save_dir))
-    saved_plots.append(plot_guidance_control(log, save_dir))
-    saved_plots.append(plot_trajectory_2d(log, save_dir))
-    saved_plots.append(plot_trajectory_3d(log, save_dir))
-    saved_plots.append(plot_flight_summary(log, final_state, save_dir))
-    saved_plots.append(plot_altitude_vs_velocity(log, save_dir))
+    saved = []
+    saved.append(plot_altitude_profile(log, save_dir))
+    saved.append(plot_velocity_profile(log, save_dir))
+    saved.append(plot_mass_profile(log, save_dir))
+    saved.append(plot_pitch_angle(log, save_dir))
+    saved.append(plot_attitude_error(log, save_dir))
+    saved.append(plot_control_torque(log, save_dir))
+    saved.append(plot_trajectory_local(log, save_dir))
+    saved.append(plot_trajectory_3d_local(log, save_dir))
+    saved.append(plot_altitude_vs_velocity(log, save_dir))
+    saved.append(plot_thrust_acceleration(log, save_dir))
     
-    print(f"\nStandard plots generated: {len(saved_plots)}")
-    return saved_plots
+    print(f"\n✓ Generated {len(saved)} publication-ready plots")
+    return saved
 
 
 if __name__ == "__main__":
-    # Test execution
-    print("Running standalone test...")
-    # Add parent paths if running directly
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    print("Running standalone plot generation...")
     final_state, log, reason = run_simulation(verbose=True)
-    generate_all_plots(log, final_state, 'plots/standard')
+    generate_all_plots(log, final_state, 'plots')
