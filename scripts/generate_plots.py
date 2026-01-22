@@ -65,13 +65,20 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     meco_time = time[meco_idx]
     
     # Compute derived quantities
-    # Flight path angle (gamma) = angle of velocity from local horizontal
+    # Flight path angle (gamma) = angle of velocity from local vertical
+    # Convention: γ = 90° at liftoff (purely horizontal due to Earth rotation)
+    # then increases as thrust adds vertical velocity, then decreases during gravity turn
     r_mag = np.sqrt(pos_x**2 + pos_y**2 + pos_z**2)
     v_mag = velocity
     # Radial velocity component (v_r = (r·v) / |r|)
     v_radial = (pos_x*vel_x + pos_y*vel_y + pos_z*vel_z) / r_mag
-    # Flight path angle: sin(gamma) = v_r / |v|
-    gamma = np.degrees(np.arcsin(np.clip(v_radial / np.maximum(v_mag, 1), -1, 1)))
+    # Flight path angle from horizontal: sin(gamma_h) = v_r / |v|
+    gamma_from_horizontal = np.degrees(np.arcsin(np.clip(v_radial / np.maximum(v_mag, 1), -1, 1)))
+    # Flight path angle from vertical (reviewer's convention): γ = 90° - γ_horizontal
+    # At liftoff (horizontal velocity only): γ_h = 0° → γ_v = 90°
+    # At peak climb (mostly vertical): γ_h ~ 55° → γ_v ~ 35°
+    # For orbit (horizontal): γ_h → 0° → γ_v → 90°
+    gamma = 90.0 - gamma_from_horizontal  # Angle from vertical
     
     # Gravity turn start (when pitch starts changing significantly)
     pitch_diff = np.abs(np.diff(pitch_angle))
@@ -331,36 +338,36 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     ax.plot(time, gamma, 'b-', linewidth=2, label='Flight Path Angle γ')
     
     # Reference lines
-    ax.axhline(y=90, color='green', linestyle='--', alpha=0.5, label='Pure Vertical (90°)')
-    ax.axhline(y=0, color='red', linestyle='--', alpha=0.5, label='Horizontal (0°)')
+    ax.axhline(y=0, color='green', linestyle='--', alpha=0.5, label='Pure Vertical (0°)')
+    ax.axhline(y=90, color='red', linestyle='--', alpha=0.5, label='Horizontal (90°)')
     ax.axvline(x=gravity_turn_time, color='gray', linestyle=':', alpha=0.7)
     
     # Markers
     ax.scatter([time[liftoff_idx]], [gamma[liftoff_idx]], 
                c='green', s=100, marker='o', zorder=5, label=f'Liftoff (γ={gamma[liftoff_idx]:.1f}°)')
-    gamma_peak_idx = np.argmax(gamma)
-    ax.scatter([time[gamma_peak_idx]], [gamma[gamma_peak_idx]], 
-               c='orange', s=100, marker='D', zorder=5, label=f'Peak (γ={gamma[gamma_peak_idx]:.1f}°)')
+    gamma_min_idx = np.argmin(gamma)
+    ax.scatter([time[gamma_min_idx]], [gamma[gamma_min_idx]], 
+               c='orange', s=100, marker='D', zorder=5, label=f'Min (γ={gamma[gamma_min_idx]:.1f}°)')
     ax.scatter([time[meco_idx]], [gamma[meco_idx]], 
                c='red', s=100, marker='x', zorder=5, label=f'MECO (γ={gamma[meco_idx]:.1f}°)')
     
     # Physics explanation box
-    textstr = 'Physics Explanation:\n• At liftoff, inertial velocity is tangential (Earth rotation ~465 m/s)\n• Thrust adds vertical velocity → γ increases (climbing steeper)\n• After peak, gravity turn bends trajectory → γ decreases\n• For orbit: γ → 0° (purely horizontal velocity)'
+    textstr = 'Physics Explanation:\n• At liftoff, velocity is horizontal (Earth rotation) → γ=90°\n• Thrust adds vertical velocity → γ decreases towards 0° (vertical)\n• Gravity turn bends trajectory → γ increases towards 90°'
     props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.9)
     ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=8,
             verticalalignment='top', bbox=props)
     
     # Annotation for gravity turn
     ax.annotate('Gravity Turn\nStart', xy=(gravity_turn_time, gamma[gravity_turn_idx]),
-                xytext=(gravity_turn_time + 10, gamma[gravity_turn_idx] - 15),
+                xytext=(gravity_turn_time + 10, gamma[gravity_turn_idx] + 15),
                 fontsize=9, style='italic', color='gray',
                 arrowprops=dict(arrowstyle='->', color='gray', alpha=0.7))
     
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Flight Path Angle γ (°)')
-    ax.set_title('Flight Path Angle Evolution\n(γ = angle of velocity from local horizontal)', 
+    ax.set_title('Flight Path Angle Evolution\n(γ = angle of velocity from local vertical)', 
                  fontweight='bold', style='italic')
-    ax.legend(loc='lower right', fontsize=9)
+    ax.legend(loc='lower left', fontsize=9)
     ax.set_xlim(0, time[-1])
     ax.set_ylim(-10, 100)
     plt.tight_layout()

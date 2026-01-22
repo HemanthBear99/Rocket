@@ -112,8 +112,8 @@ INERTIA_TENSOR_INV = np.linalg.inv(INERTIA_TENSOR)
 # ωn ≈ 0.1 rad/s, ζ ≈ 0.7 (critically damped)
 # Optimized for stability with max error ~3.8°
 
-KP_ATTITUDE = 5.0e5  # Proportional gain
-KD_ATTITUDE = 7.5e6  # Derivative gain (critical damping)
+KP_ATTITUDE = 5.0e6  # Proportional gain (high performance, stable)
+KD_ATTITUDE = 3.5e7  # Derivative gain (solid damping)
 
 # Maximum control torque (N·m)
 MAX_TORQUE = 2.5e6
