@@ -39,6 +39,9 @@ class SimulationLog:
     time: List[float] = field(default_factory=list)
     altitude: List[float] = field(default_factory=list)
     velocity: List[float] = field(default_factory=list)
+    velocity_x: List[float] = field(default_factory=list)
+    velocity_y: List[float] = field(default_factory=list)
+    velocity_z: List[float] = field(default_factory=list)
     mass: List[float] = field(default_factory=list)
     pitch_angle: List[float] = field(default_factory=list)
     attitude_error: List[float] = field(default_factory=list)
@@ -53,6 +56,9 @@ class SimulationLog:
         self.time.append(state.t)
         self.altitude.append(state.altitude / 1000)  # km
         self.velocity.append(state.speed)
+        self.velocity_x.append(state.v[0])
+        self.velocity_y.append(state.v[1])
+        self.velocity_z.append(state.v[2])
         self.mass.append(state.m)
         self.pitch_angle.append(np.degrees(guidance['pitch_angle']))
         self.attitude_error.append(control.get('error_degrees', 0.0))
@@ -219,9 +225,5 @@ def run_simulation(dt: float = None, max_time: float = None,
     return state, log, reason
 
 
-    return state, log, reason
-
-
 if __name__ == "__main__":
     run_simulation()
-
