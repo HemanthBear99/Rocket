@@ -22,6 +22,7 @@ class GuidanceOutput(TypedDict):
     velocity: float  # Current velocity magnitude (m/s)
     local_vertical: NDArray[np.float64]  # Unit vector pointing radially outward
     local_horizontal: NDArray[np.float64]  # Unit vector in velocity direction
+    throttle: float  # Throttle command (0.0 to 1.0)
 
 
 class ControlOutput(TypedDict):

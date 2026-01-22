@@ -84,6 +84,7 @@ def is_propellant_exhausted(m: float) -> bool:
     return m <= C.DRY_MASS
 
 
+
 def get_propellant_fraction(m: float) -> float:
     """
     Compute the fraction of propellant remaining.
@@ -96,3 +97,40 @@ def get_propellant_fraction(m: float) -> float:
     """
     propellant_remaining = max(0.0, m - C.DRY_MASS)
     return propellant_remaining / C.PROPELLANT_MASS
+
+
+def compute_center_of_mass(m: float) -> float:
+    """
+    Compute the Center of Mass height from the base (Z=0).
+    
+    Linearly interpolates between H_CG_FULL and H_CG_EMPTY based on propellant fraction.
+    
+    Args:
+        m: Current mass (kg)
+        
+    Returns:
+        Height of CG from base (m)
+    """
+    frac = get_propellant_fraction(m)
+    # Lerp: Full -> Empty as frac: 1.0 -> 0.0
+    h_cg = C.H_CG_EMPTY + frac * (C.H_CG_FULL - C.H_CG_EMPTY)
+    return h_cg
+
+
+def compute_inertia_tensor(m: float) -> np.ndarray:
+    """
+    Compute the Moment of Inertia Tensor.
+    
+    Linearly interpolates between INERTIA_TENSOR_FULL and INERTIA_TENSOR_EMPTY.
+    
+    Args:
+        m: Current mass (kg)
+        
+    Returns:
+        3x3 Inertia Tensor (kg*m^2)
+    """
+    frac = get_propellant_fraction(m)
+    # Lerp: Full -> Empty as frac: 1.0 -> 0.0
+    I_tensor = C.INERTIA_TENSOR_EMPTY + frac * (C.INERTIA_TENSOR_FULL - C.INERTIA_TENSOR_EMPTY)
+    return I_tensor
+

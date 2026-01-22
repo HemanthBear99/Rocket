@@ -138,21 +138,24 @@ def compute_drag_force(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     return -drag_magnitude * v_rel_hat
 
 
-def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True) -> np.ndarray:
+def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True, throttle: float = 1.0) -> np.ndarray:
     """
-    Compute thrust force in inertial frame with altitude compensation.
+    Compute thrust force in inertial frame with altitude compensation and throttling.
     
     Thrust varies with ambient pressure:
     T = T_vac + (T_sl - T_vac) * (P_amb / P_sl)
-    (Linear interpolation assumption)
     
     Args:
         q: Orientation quaternion
         r: Position vector (for altitude/pressure)
         thrust_on: active flag
+        throttle: Throttle setting (0.0 to 1.0)
     """
     if not thrust_on:
         return np.zeros(3)
+    
+    # Clamp throttle
+    throttle = max(0.0, min(1.0, throttle))
     
     # Get Ambient Pressure
     altitude = np.linalg.norm(r) - C.R_EARTH
@@ -161,23 +164,19 @@ def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True) -
     # Sea Level Pressure (use named constant)
     P0 = C.ATM_P0
     
-    # Calculate Thrust Magnitude
-    # F = mdot * ve + (Pe - Pa) * Ae
-    # We use Isp interpolation or Thrust interpolation.
+    # Calculate Thrust Magnitude with Throttling
+    # Assumption: Throttling scales mass flow and thrust proportionally
+    # T_vac_throttled = throttle * T_vac_max
     
-    # Calc Vacuum Thrust from constants
-    # T_sl = 7.6 MN, Isp_sl = 282
-    # mdot = 7.6e6 / (282 * 9.80665)
-    # T_vac = mdot * Isp_vac * 9.80665
-    
-    mdot = C.MASS_FLOW_RATE # Calculated from SL values in constants
+    mdot = C.MASS_FLOW_RATE
     T_vac_calc = mdot * C.ISP_VAC * C.G0
     
     # Interpolate based on pressure (simplified linear model)
-    # When P = P0, T = T_sl. When P = 0, T = T_vac.
-    # T = T_vac - (P_amb / P0) * (T_vac - T_sl)
+    # T_max = T_vac_calc - (P_amb / P0) * (T_vac_calc - C.THRUST_MAGNITUDE)
+    # T_actual = throttle * T_max
     
-    thrust_magnitude = T_vac_calc - (P_amb / P0) * (T_vac_calc - C.THRUST_MAGNITUDE)
+    current_max_thrust = T_vac_calc - (P_amb / P0) * (T_vac_calc - C.THRUST_MAGNITUDE)
+    thrust_magnitude = throttle * current_max_thrust
     
     # Thrust in body frame (along +Z axis)
     F_body = np.array([0.0, 0.0, thrust_magnitude])
@@ -187,6 +186,103 @@ def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True) -
     F_inertial = R @ F_body
     
     return F_inertial
+
+
+def compute_aerodynamic_moment(r: np.ndarray, v: np.ndarray, q: np.ndarray, cg_pos_z: float) -> np.ndarray:
+    """
+    Compute aerodynamic moment about the Center of Mass (Body Frame).
+    
+    Models the aerodynamic instability (CP ahead of CG).
+    M = r_arm x F_normal
+    
+    Args:
+        r: Position (inertial)
+        v: Velocity (inertial)
+        q: Attitude Quaternion
+        cg_pos_z: Height of CG from base (m)
+        
+    Returns:
+        Moment vector in BODY FRAME (N*m)
+    """
+    altitude = np.linalg.norm(r) - C.R_EARTH
+    _, _, rho, speed_of_sound = compute_atmosphere_properties(altitude)
+    
+    if rho < C.DENSITY_FLOOR:
+        return np.zeros(3)
+        
+    # Relative Velocity (Wind)
+    v_rel = compute_relative_velocity(r, v)
+    v_rel_norm = np.linalg.norm(v_rel)
+    
+    if v_rel_norm < C.SMALL_VELOCITY_TOL:
+        return np.zeros(3)
+        
+    # Transform v_rel to Body Frame to get Angle of Attack components
+    R = quaternion_to_rotation_matrix(q)
+    # v_body = R.T @ v_rel  <-- R transforms Body to Inertial, so R.T transforms Inertial to Body
+    v_body = R.T @ v_rel
+    
+    # v_body = [vx, vy, vz]
+    # In body frame, Z is up (nose). Wind comes from top (-Z) mainly.
+    # Transverse components cause AoA.
+    vx, vy, vz = v_body
+    
+    # Dynamic Pressure
+    q_dyn = 0.5 * rho * v_rel_norm**2
+    
+    # Normal Force Calculation (Linearized Aerodynamics)
+    # F_normal is proportional to Angle of Attack * q_dyn * Area
+    # C_N_alpha approx 3.0 to 4.0 per radian for a rocket cylinder+nose
+    C_N_alpha = 4.0 
+    
+    # Calculate transverse velocity magnitude
+    v_transverse = np.sqrt(vx**2 + vy**2)
+    
+    if v_transverse < 1e-6:
+        return np.zeros(3)
+    
+    # AoA (alpha) ~ v_transverse / |vz| (small angle approximation)
+    # Note: vz should be negative (wind in face).
+    alpha = np.arctan2(v_transverse, abs(vz))
+    
+    # Normal Force Magnitude
+    Fn_mag = q_dyn * C.REFERENCE_AREA * C_N_alpha * alpha
+    
+    # Direction of Normal Force in Body Frame
+    # Acts in the direction of the transverse wind component?
+    # Wind pushes the nose. If v_body has +x component, wind is hitting from +x side?
+    # Wait, v_body is velocity OF BODY relative to air.
+    # If v_body.x is positive, body is moving Right relative to air.
+    # Air pushes Back (Left).
+    # Drag is opposite to v_body.
+    # Normal force is perpendicular to v_body, in the plane of alpha.
+    # Force on CP acts to INCREASE alpha (Unstable).
+    # If body moves Right (+x), Drag push Left (-x).
+    # Nose CP pushes Left (-x)? 
+    # Yes, if you move Right, Wind hits Right side, pushes Left.
+    
+    # Unit vector of transverse velocity
+    u_trans = np.array([vx, vy, 0.0]) / v_transverse
+    
+    # Normal Force Vector (Opposing transverse velocity)
+    # F_normal_body = -Fn_mag * u_trans
+    # (Just like Drag opposes velocity)
+    F_normal_body = -Fn_mag * u_trans
+    
+    # Lever Arm from CG to CP
+    # Body Frame origin is... complicated in this code base.
+    # But we defined H_CP and H_CG from the base.
+    # r_cp = [0, 0, H_CP]
+    # r_cg = [0, 0, cg_pos_z]
+    # arm = r_cp - r_cg = [0, 0, H_CP - cg_pos_z]
+    
+    arm_z = C.H_CP - cg_pos_z
+    r_arm = np.array([0.0, 0.0, arm_z])
+    
+    # Torque = r x F
+    torque_aero = np.cross(r_arm, F_normal_body)
+    
+    return torque_aero
 
 
 def compute_total_force(r: np.ndarray, v: np.ndarray, q: np.ndarray, 

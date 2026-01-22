@@ -298,7 +298,8 @@ def quaternion_error(q_current: np.ndarray, q_desired: np.ndarray) -> np.ndarray
         Error quaternion [w, x, y, z]
     """
     q_inv = quaternion_inverse(q_current)
-    q_err = quaternion_multiply(q_desired, q_inv)
+    # Compute error in BODY frame: q_err = q_inv * q_desired
+    q_err = quaternion_multiply(q_inv, q_desired)
     
     # Ensure we take the shortest path (w >= 0)
     if q_err[0] < 0:

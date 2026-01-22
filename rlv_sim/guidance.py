@@ -139,8 +139,7 @@ def compute_pitchover_blend(altitude: float) -> float:
     """
     if altitude < C.PITCHOVER_START_ALTITUDE:
         return 0.0
-    elif altitude > C.PITCHOVER_END_ALTITUDE:
-        return 0.0
+    # REMOVED hard cutoff to prevent snap-back
     else:
         # Use a short ramp-in and ramp-out for smoothness
         # Ramp zones: first 50m and last 50m of the phase
@@ -149,11 +148,9 @@ def compute_pitchover_blend(altitude: float) -> float:
         if altitude < C.PITCHOVER_START_ALTITUDE + ramp_distance:
             # Ramp up from 0 to 1 in first 50m
             return (altitude - C.PITCHOVER_START_ALTITUDE) / ramp_distance
-        elif altitude > C.PITCHOVER_END_ALTITUDE - ramp_distance:
-            # Ramp down from 1 to 0 in last 50m
-            return (C.PITCHOVER_END_ALTITUDE - altitude) / ramp_distance
         else:
-            # Hold at 1.0 for most of the phase
+            # Hold at 1.0 - Let Gravity Turn blend take over naturally
+            # Do NOT ramp down back to vertical, as that causes the "step"
             return 1.0
 
 
@@ -244,11 +241,7 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray,
     alpha = compute_blend_parameter(altitude)
     
     # Determine guidance phase
-    # Note: alpha based on altitude blend ensures smooth transitions
     if alpha < 0.01:
-        # Before gravity turn starts (alpha < 0.01)
-        # Pitchover phase: altitude in [C.PITCHOVER_START, C.PITCHOVER_END] range
-        # Vertical ascent phase: altitude < C.PITCHOVER_START
         if C.PITCHOVER_START_ALTITUDE <= altitude <= C.PITCHOVER_END_ALTITUDE:
             phase = "PITCHOVER"
         else:
@@ -258,15 +251,69 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray,
     else:
         phase = "PROGRADE"
     
-    # SAFETY: Ensure alpha is non-negative to prevent numerical issues
-    # When altitude is near zero, blend calculation could have edge cases
-    alpha = np.maximum(0.0, alpha)  # Ensure alpha >= 0
-    
-    # Check if thrust should be on (propellant remaining)
+    # SAFETY: Ensure alpha is non-negative
+    alpha = np.maximum(0.0, alpha)
+
+    # Check if thrust should be on
     thrust_on = (m > C.DRY_MASS)
     
+    # =========================================================================
+    # MAX-Q THROTTLING LOGIC
+    # =========================================================================
+    # Calculate Dynamic Pressure (q)
+    # q = 0.5 * rho * v^2
+    _, _, rho, _ = C.compute_atmosphere_properties(altitude) if hasattr(C, 'compute_atmosphere_properties') else (0,0,0,0)
+    # Need to import compute_atmosphere_properties from somewhere or replicate logic?
+    # Actually, forces.py is downstream. Guidance shouldn't depend on forces?
+    # Ideally, environment should be a shared module or utilities.
+    # But for now, we can simple-calculate rho using the constant model or import from forces (circular import risk?).
+    # `forces` imports `constants`, `frames`, `utils`. `guidance` imports `constants`, `types`, `utils`.
+    # Let's verify `forces.py` imports.
+    # `rlv_sim.forces` is a module. We can avoid circular import by importing inside function?
+    # Or better: `compute_atmosphere_properties` is in `forces.py`.
+    # Let's rely on `utils.py`? No, it's in `forces`.
+    # Refactor: Move `compute_atmosphere_properties` to `utils.py`?
+    # OR: Just approximate rho for guidance?
+    # No, we need to match forces.
+    # Let's import inside function for now to break circularity if any.
+    
+    from .forces import compute_atmosphere_properties
+    _, _, rho, _ = compute_atmosphere_properties(altitude)
+    
+    q_dyn = 0.5 * rho * v_rel_norm**2
+    
+    throttle = 1.0
+    if q_dyn > C.MAX_DYNAMIC_PRESSURE:
+        # Simple throttle bucket: reduced thrust to limit Q
+        throttle_target = C.MAX_DYNAMIC_PRESSURE / q_dyn
+        
+        # SAFETY: Ensure Thrust > Weight to prevent stall/crash
+        # W = m * g
+        gravity_force = m * C.G0
+        
+        # Max Thrust at this altitude
+        # Approx T_max = C.THRUST_MAGNITUDE (for safety check, assume sea level conservative)
+        # Or calculate linearly. 
+        # Using T_sl is safe (T_vac is higher, so throttle % would be lower for same force).
+        # We need min_force = 1.05 * Weight.
+        # min_throttle = min_force / T_max_avail.
+        
+        # Let's use the nominal max thrust for simplification 
+        # (guidance loop doesn't compute exact engine pressure)
+        min_thrust_req = gravity_force * 1.05 # 5% margin
+        min_throttle = min_thrust_req / C.THRUST_MAGNITUDE
+        
+        # Clamp throttle
+        throttle = max(throttle_target, min_throttle)
+        
+        # Ultimate clamp
+        throttle = max(0.4, min(1.0, throttle))
+    else:
+        throttle = 1.0
+    
+    # Return Guidance Output
+    
     # Compute pitch angle from vertical (for logging)
-    # Pitch is angle FROM vertical TO thrust_dir
     vertical = compute_local_vertical(r)
     cos_pitch = np.clip(np.dot(vertical, thrust_dir), -1.0, 1.0)
     pitch_angle = float(np.arccos(cos_pitch))
@@ -280,5 +327,7 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray,
         'altitude': altitude,
         'velocity': float(np.linalg.norm(v)),
         'local_vertical': vertical,
-        'local_horizontal': compute_local_horizontal(r, v)
+        'local_horizontal': compute_local_horizontal(r, v),
+        'throttle': throttle
     }
+

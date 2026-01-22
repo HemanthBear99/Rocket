@@ -65,20 +65,59 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     meco_time = time[meco_idx]
     
     # Compute derived quantities
-    # Flight path angle (gamma) = angle of velocity from local vertical
-    # Convention: γ = 90° at liftoff (purely horizontal due to Earth rotation)
-    # then increases as thrust adds vertical velocity, then decreases during gravity turn
-    r_mag = np.sqrt(pos_x**2 + pos_y**2 + pos_z**2)
-    v_mag = velocity
-    # Radial velocity component (v_r = (r·v) / |r|)
-    v_radial = (pos_x*vel_x + pos_y*vel_y + pos_z*vel_z) / r_mag
-    # Flight path angle from horizontal: sin(gamma_h) = v_r / |v|
-    gamma_from_horizontal = np.degrees(np.arcsin(np.clip(v_radial / np.maximum(v_mag, 1), -1, 1)))
-    # Flight path angle from vertical (reviewer's convention): γ = 90° - γ_horizontal
-    # At liftoff (horizontal velocity only): γ_h = 0° → γ_v = 90°
-    # At peak climb (mostly vertical): γ_h ~ 55° → γ_v ~ 35°
-    # For orbit (horizontal): γ_h → 0° → γ_v → 90°
-    gamma = 90.0 - gamma_from_horizontal  # Angle from vertical
+    # 1. Relative Velocity (Airspeed)
+    # v_rel = v_inertial - (omega_earth x r)
+    omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE]) # Axis of rotation (Z? No, Earth rotates about Z in ECI? 
+    # WAIT. ECI frame definition in constants.py: "At equator (r = R_EARTH along X), v is along Y".
+    # Rotation is about Z axis [0, 0, 1].
+    
+    # Vectorized computation of relative velocity
+    # v_rel = v - cross(omega, r)
+    omega_vec = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
+    
+    # We need to compute this for every timestep.
+    # pos = [pos_x, pos_y, pos_z] (N, 3)
+    pos_array = np.column_stack((pos_x, pos_y, pos_z))
+    vel_array = np.column_stack((vel_x, vel_y, vel_z))
+    
+    cross_term = np.cross(omega_vec, pos_array) # (N, 3)
+    v_rel_array = vel_array - cross_term
+    v_rel_mag = np.linalg.norm(v_rel_array, axis=1)
+    
+    # 2. Flight Path Angle (Relative to Local Horizontal)
+    # gamma = angle between v_rel and local horizontal
+    # sin(gamma) = v_rel_radial / |v_rel|
+    # v_rel_radial = dot(v_rel, r_hat)
+    r_mag = np.linalg.norm(pos_array, axis=1)
+    r_hat = pos_array / r_mag[:, np.newaxis]
+    
+    v_rel_radial = np.sum(v_rel_array * r_hat, axis=1)
+    
+    # Clip for safety
+    sin_gamma = np.clip(v_rel_radial / np.maximum(v_rel_mag, 1.0), -1.0, 1.0)
+    gamma_relative = np.degrees(np.arcsin(sin_gamma))
+    
+    # 3. Dynamic Pressure (Q)
+    # q = 0.5 * rho * v_rel^2
+    # Be expensive to call atmosphere model for every point, but necessary for plots.
+    # Approximate based on exponential for plotting speed? 
+    # Or call loop.
+    q_dynamic = []
+    
+    # Imports for calculations
+    from rlv_sim.forces import compute_atmosphere_properties
+    
+    for h, v_mag_rel in zip(altitude, v_rel_mag):
+        # h is in km in the log arrays, but compute_atmosphere_properties needs m
+        h_m = h * 1000.0
+        _, _, rho, _ = compute_atmosphere_properties(h_m)
+        q = 0.5 * rho * v_mag_rel**2
+        q_dynamic.append(q)
+    
+    q_dynamic = np.array(q_dynamic)
+    
+    # Use the corrected Relative Gamma for plotting
+    gamma = gamma_relative
     
     # Gravity turn start (when pitch starts changing significantly)
     pitch_diff = np.abs(np.diff(pitch_angle))
@@ -301,7 +340,11 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     # Approximate thrust and gravity forces
     g = C.G0  # m/s²
     thrust_force = np.ones_like(time) * C.THRUST_MAGNITUDE / 1e6  # MN (simplified)
-    gravity_force = mass * g / 1e6  # MN
+    
+    # Correct Inverse-Square Gravity Calculation for Plots
+    # F_g = mu * m / r^2
+    r_center = altitude * 1000.0 + C.R_EARTH
+    gravity_force = (C.MU_EARTH * mass / (r_center**2)) / 1e6 # MN
     
     ax.plot(time, thrust_force, 'r-', linewidth=2, label='Thrust')
     ax.fill_between(time, 0, thrust_force, alpha=0.2, color='red')
@@ -331,15 +374,73 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     plt.close(fig)
     
     # =========================================================================
-    # 11. Flight Path Angle (Gamma)
+    # 11. Flight Path Angle (Gamma) - RELATIVE
     # =========================================================================
     fig, ax = plt.subplots()
     ax.fill_between(time, 0, gamma, alpha=0.3, color='blue')
-    ax.plot(time, gamma, 'b-', linewidth=2, label='Flight Path Angle γ')
+    ax.plot(time, gamma, 'b-', linewidth=2, label='Relative FPA γ')
     
     # Reference lines
-    ax.axhline(y=0, color='green', linestyle='--', alpha=0.5, label='Pure Vertical (0°)')
-    ax.axhline(y=90, color='red', linestyle='--', alpha=0.5, label='Horizontal (90°)')
+    ax.axhline(y=90, color='green', linestyle='--', alpha=0.5, label='Vertical (90°)')
+    ax.axhline(y=0, color='red', linestyle='--', alpha=0.5, label='Horizontal (0°)')
+    ax.axvline(x=gravity_turn_time, color='gray', linestyle=':', alpha=0.7)
+    
+    # Markers
+    ax.scatter([time[liftoff_idx]], [gamma[liftoff_idx]], 
+               c='green', s=100, marker='o', zorder=5, label=f'Liftoff (γ={gamma[liftoff_idx]:.1f}°)')
+    gamma_min_idx = np.argmin(gamma) # For relative, it starts at 90 and drops.
+    ax.scatter([time[meco_idx]], [gamma[meco_idx]], 
+               c='red', s=100, marker='x', zorder=5, label=f'MECO (γ={gamma[meco_idx]:.1f}°)')
+    
+    # Physics explanation box
+    textstr = 'Corrected Physics:\n• Plot shows Air-Relative Flight Path Angle\n• Starts at 90° (Vertical climb w.r.t Air)\n• Gravity turn reduces γ towards horizontal (0°)'
+    props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.9)
+    ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=8,
+            verticalalignment='top', bbox=props)
+    
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Relative Flight Path Angle γ (°)')
+    ax.set_title('Relative Flight Path Angle\n(γ = angle of relative velocity from local horizontal)', 
+                 fontweight='bold', style='italic')
+    ax.legend(loc='lower left', fontsize=9)
+    ax.set_xlim(0, time[-1])
+    ax.set_ylim(-10, 100)
+    plt.tight_layout()
+    path = os.path.join(output_dir, '11_flight_path_angle.png')
+    fig.savefig(path, bbox_inches='tight')
+    saved_files.append(path)
+    plt.close(fig)
+
+    # =========================================================================
+    # 12. Dynamic Pressure (Max-Q)
+    # =========================================================================
+    fig, ax = plt.subplots()
+    q_kpa = q_dynamic / 1000.0
+    limit_kpa = C.MAX_DYNAMIC_PRESSURE / 1000.0
+    
+    ax.fill_between(time, 0, q_kpa, alpha=0.3, color='purple')
+    ax.plot(time, q_kpa, 'purple', linewidth=2, label='Dynamic Pressure (Q)')
+    ax.axhline(y=limit_kpa, color='red', linestyle='--', linewidth=2, label=f'Max-Q Limit ({limit_kpa:.1f} kPa)')
+    
+    # Find Max Q
+    max_q_idx = np.argmax(q_kpa)
+    max_q_val = q_kpa[max_q_idx]
+    max_q_time = time[max_q_idx]
+    
+    ax.scatter([max_q_time], [max_q_val], c='red', s=100, marker='D', zorder=5, 
+               label=f'Peak Q ({max_q_val:.1f} kPa)')
+               
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Dynamic Pressure (kPa)')
+    ax.set_title('Dynamic Pressure Evolution', fontweight='bold', style='italic')
+    ax.legend(loc='upper right')
+    ax.set_xlim(0, time[-1])
+    ax.set_ylim(0, None)
+    plt.tight_layout()
+    path = os.path.join(output_dir, '12_dynamic_pressure.png')
+    fig.savefig(path, bbox_inches='tight')
+    saved_files.append(path)
+    plt.close(fig)
     ax.axvline(x=gravity_turn_time, color='gray', linestyle=':', alpha=0.7)
     
     # Markers

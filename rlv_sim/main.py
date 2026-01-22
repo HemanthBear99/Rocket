@@ -125,10 +125,12 @@ def simulation_step(state: State, dt: float) -> tuple:
     torque = control['torque']
     
     # Steps 4-8: Integration (handles forces, dynamics, quaternion, mass)
+    throttle = guidance.get('throttle', 1.0)
     new_state = integrate(
         state, torque, dt,
         thrust_on=guidance['thrust_on'],
-        method='rk4'
+        method='rk4',
+        throttle=throttle
     )
     
     return new_state, guidance, control

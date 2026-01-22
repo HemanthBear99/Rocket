@@ -14,7 +14,7 @@ from .dynamics import state_derivative_vector
 
 
 def rk4_step(state: State, torque: np.ndarray, dt: float, 
-             thrust_on: bool = True) -> State:
+             thrust_on: bool = True, throttle: float = 1.0) -> State:
     """
     Perform a single RK4 integration step.
     
@@ -30,6 +30,7 @@ def rk4_step(state: State, torque: np.ndarray, dt: float,
         torque: Control torque in body frame (N*m)
         dt: Time step (s)
         thrust_on: Whether thrust is active
+        throttle: Throttle setting (0.0 to 1.0)
         
     Returns:
         New state after integration
@@ -49,22 +50,22 @@ def rk4_step(state: State, torque: np.ndarray, dt: float,
     y = state.to_vector()
     
     # k1 = f(t, y)
-    k1 = state_derivative_vector(y, t, torque, thrust_on)
+    k1 = state_derivative_vector(y, t, torque, thrust_on, throttle)
     
     # k2 = f(t + dt/2, y + dt/2 * k1)
     y2 = y + 0.5 * dt * k1
     y2[6:10] = quaternion_normalize(y2[6:10])  # Normalize quaternion
-    k2 = state_derivative_vector(y2, t + 0.5*dt, torque, thrust_on)
+    k2 = state_derivative_vector(y2, t + 0.5*dt, torque, thrust_on, throttle)
     
     # k3 = f(t + dt/2, y + dt/2 * k2)
     y3 = y + 0.5 * dt * k2
     y3[6:10] = quaternion_normalize(y3[6:10])
-    k3 = state_derivative_vector(y3, t + 0.5*dt, torque, thrust_on)
+    k3 = state_derivative_vector(y3, t + 0.5*dt, torque, thrust_on, throttle)
     
     # k4 = f(t + dt, y + dt * k3)
     y4 = y + dt * k3
     y4[6:10] = quaternion_normalize(y4[6:10])
-    k4 = state_derivative_vector(y4, t + dt, torque, thrust_on)
+    k4 = state_derivative_vector(y4, t + dt, torque, thrust_on, throttle)
     
     # Final update
     y_new = y + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
@@ -79,7 +80,7 @@ def rk4_step(state: State, torque: np.ndarray, dt: float,
 
 
 def euler_step(state: State, torque: np.ndarray, dt: float,
-               thrust_on: bool = True) -> State:
+               thrust_on: bool = True, throttle: float = 1.0) -> State:
     """
     Perform a single Euler integration step.
     
@@ -90,6 +91,7 @@ def euler_step(state: State, torque: np.ndarray, dt: float,
         torque: Control torque in body frame (N*m)
         dt: Time step (s)
         thrust_on: Whether thrust is active
+        throttle: Throttle setting (0.0 to 1.0)
         
     Returns:
         New state after integration
@@ -98,7 +100,7 @@ def euler_step(state: State, torque: np.ndarray, dt: float,
     y = state.to_vector()
     
     # dy/dt = f(t, y)
-    dy = state_derivative_vector(y, t, torque, thrust_on)
+    dy = state_derivative_vector(y, t, torque, thrust_on, throttle)
     
     # y_new = y + dt * dy
     y_new = y + dt * dy
@@ -113,7 +115,7 @@ def euler_step(state: State, torque: np.ndarray, dt: float,
 
 
 def integrate(state: State, torque: np.ndarray, dt: float,
-              thrust_on: bool = True, method: str = 'rk4') -> State:
+              thrust_on: bool = True, method: str = 'rk4', throttle: float = 1.0) -> State:
     """
     Integrate the state forward by one timestep.
     
@@ -123,13 +125,15 @@ def integrate(state: State, torque: np.ndarray, dt: float,
         dt: Time step (s)
         thrust_on: Whether thrust is active
         method: Integration method ('rk4' or 'euler')
+        throttle: Throttle setting
         
     Returns:
         New state after integration
     """
     if method == 'rk4':
-        return rk4_step(state, torque, dt, thrust_on)
+        return rk4_step(state, torque, dt, thrust_on, throttle)
     elif method == 'euler':
-        return euler_step(state, torque, dt, thrust_on)
+        return euler_step(state, torque, dt, thrust_on, throttle)
+
     else:
         raise ValueError(f"Unknown integration method: {method}")

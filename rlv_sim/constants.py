@@ -68,39 +68,38 @@ REFERENCE_AREA = 10.75  # Reference cross-sectional area (m^2)
 REFERENCE_DIAMETER = 3.7  # m
 
 # =============================================================================
-# INERTIA TENSOR - STACKED CONFIGURATION (A.14)
-# Computed from Stage 1 + Stage 2 using parallel axis theorem
+# INERTIA & GEOMETRY - VARIABLE MODEL
 # =============================================================================
 
-# Stage 1 Inertia Tensor (A.3)
-I1_xx = 1.20e7  # kg·m²
-I1_yy = 1.20e7  # kg·m²
-I1_zz = 2.00e6  # kg·m²
+# Vehicle Dimensions (from Base)
+H_STAGE1 = 40.0         # m (Height of Stage 1)
+H_STACK = 60.0          # m (Total Stack Height)
 
-# Stage 2 Inertia Tensor (A.12)
-I2_xx = 2.5e6  # kg·m²
-I2_yy = 2.5e6  # kg·m²
-I2_zz = 4.0e5  # kg·m²
+# Center of Gravity Locations (Height from Base Z=0)
+# Stage 1 Propellant is bottom-heavy (0-30m)
+# Stage 2 Payload is top-heavy (at 50m)
+H_CG_FULL = 20.0        # m (Low CG due to massive fuel load)
+H_CG_EMPTY = 35.0       # m (High CG due to heavy upper stage and empty tanks)
 
-# Stage 2 CG offset from Stage 1 CG (A.12)
-STAGE2_CG_OFFSET = 18.0  # m along +Z
+# Aerodynamic Center of Pressure (Unstable: CP ahead of CG)
+H_CP = 42.0             # m (Original Unstable Configuration - CP ahead of CG)
 
-# Stacked Inertia using parallel axis theorem (A.14)
-# I_total = I1 + I2 + m2 * (d^2 * I3 - d*d^T)
-# where d is the offset vector [0, 0, 18]
-Ixx = I1_xx + I2_xx + STAGE2_MASS * (STAGE2_CG_OFFSET**2)  # Parallel axis for xx
-Iyy = I1_yy + I2_yy + STAGE2_MASS * (STAGE2_CG_OFFSET**2)  # Parallel axis for yy
-Izz = I1_zz + I2_zz  # No offset contribution for zz (offset along z)
+# Inertia Tensor - FULL (Launch Mass 540t)
+# Ixx/Iyy massive due to fuel distribution
+IXX_FULL = 5.36e7       # kg·m²
+IZZ_FULL = 2.0e6        # kg·m²
 
-# Inertia tensor (diagonal for symmetric vehicle)
-INERTIA_TENSOR = np.array([
-    [Ixx, 0.0, 0.0],
-    [0.0, Iyy, 0.0],
-    [0.0, 0.0, Izz]
-])
+# Inertia Tensor - EMPTY (MECO Mass 150t)
+# Ixx/Iyy reduced significantly
+IXX_EMPTY = 1.2e7       # kg·m²
+IZZ_EMPTY = 1.0e6       # kg·m²
 
-# Inverse inertia tensor (precomputed for efficiency)
-INERTIA_TENSOR_INV = np.linalg.inv(INERTIA_TENSOR)
+# Precomputed Tensors for interpolation
+INERTIA_TENSOR_FULL = np.diag([IXX_FULL, IXX_FULL, IZZ_FULL])
+INERTIA_TENSOR_EMPTY = np.diag([IXX_EMPTY, IXX_EMPTY, IZZ_EMPTY])
+
+# Structural Limits
+MAX_DYNAMIC_PRESSURE = 35000.0  # Pa (Max-Q Limit)
 
 # =============================================================================
 # CONTROL PARAMETERS (Table 7)
@@ -112,15 +111,15 @@ INERTIA_TENSOR_INV = np.linalg.inv(INERTIA_TENSOR)
 # ωn ≈ 0.1 rad/s, ζ ≈ 0.7 (critically damped)
 # Optimized for stability with max error ~3.8°
 
-KP_ATTITUDE = 5.0e6  # Proportional gain (high performance, stable)
-KD_ATTITUDE = 3.5e7  # Derivative gain (solid damping)
+KP_ATTITUDE = 6.0e7  # Proportional gain (Increased for Phase-I FRR)
+KD_ATTITUDE = 4.5e7  # Derivative gain (Tuned for damping)
 
 # Maximum control torque (N·m)
-MAX_TORQUE = 2.5e6
+MAX_TORQUE = 2.0e7
 
 # Pitchover Maneuver (Deterministic Azimuth)
 PITCHOVER_START_ALTITUDE = 100.0   # Altitude to start pitch kick (m)
-PITCHOVER_END_ALTITUDE = 1000.0    # Altitude to end pitch kick (m)
+PITCHOVER_END_ALTITUDE = 2000.0    # Altitude to end pitch kick (m) - Extended to overlap with Gravity Turn
 PITCHOVER_ANGLE = 2.0 * np.pi / 180.0  # 2 degrees kick
 PITCHOVER_AZIMUTH = 90.0 * np.pi / 180.0  # East (inertial +Y)
 
@@ -128,8 +127,8 @@ PITCHOVER_AZIMUTH = 90.0 * np.pi / 180.0  # East (inertial +Y)
 TARGET_PITCH_ANGLE = np.radians(45.0)
 
 # Guidance Logic Constants
-GRAVITY_TURN_START_ALTITUDE = 1500.0  # m
-GRAVITY_TURN_TRANSITION_RANGE = 4000.0  # m
+GRAVITY_TURN_START_ALTITUDE = 1000.0  # m - Overlap with Pitchover (1000m vs 2000m end)
+GRAVITY_TURN_TRANSITION_RANGE = 85000.0  # m (Extended to avoid premature pitch-over)
 MIN_VELOCITY_FOR_TURN = 50.0  # m/s
 
 # =============================================================================
