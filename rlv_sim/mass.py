@@ -84,7 +84,6 @@ def is_propellant_exhausted(m: float) -> bool:
     return m <= C.DRY_MASS
 
 
-
 def get_propellant_fraction(m: float) -> float:
     """
     Compute the fraction of propellant remaining.

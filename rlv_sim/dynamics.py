@@ -14,7 +14,7 @@ import numpy as np
 
 from . import constants as C
 from .frames import quaternion_derivative, quaternion_normalize
-from .forces import compute_total_force, compute_aerodynamic_moment
+from .forces import compute_total_force, compute_aerodynamic_moment, compute_gravity_force, compute_drag_force, compute_thrust_force
 from .mass import compute_mass_derivative, compute_inertia_tensor, compute_center_of_mass
 
 
@@ -65,23 +65,6 @@ def compute_linear_acceleration(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     
     r̈ = F_total / m
     """
-    # Note: compute_total_force now likely accepts throttle if we updated it?
-    # Actually, verify compute_total_force signature in forces.py?
-    # We only updated compute_thrust_force.
-    # In forces.py, compute_total_force calls compute_thrust_force.
-    # We should have updated compute_total_force to accept throttle too.
-    # IMPLICIT FIX: Update compute_total_force arguments in this call, assuming force.py supports it.
-    # But wait, did I update compute_total_force signature in forces.py?
-    # I replaced compute_thrust_force and duplicate compute_aerodynamic_moment definition...
-    # I missed updating compute_total_force signature in forces.py!
-    # I need to fix forces.py first or manually call constituent forces here.
-    
-    # Let's manually call constituent forces here to be safe and robust working around the signature mismatch 
-    # if I forgot to update compute_total_force.
-    # Actually, compute_total_force is just a sum.
-    
-    from .forces import compute_gravity_force, compute_drag_force, compute_thrust_force
-    
     F_grav = compute_gravity_force(r, m)
     F_thrust = compute_thrust_force(q, r, thrust_on, throttle)
     F_drag = compute_drag_force(r, v)
@@ -118,7 +101,8 @@ def compute_state_derivative(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     
     # 1. Update Inertia Properties
     I_tensor = compute_inertia_tensor(m)
-    I_inv = np.linalg.inv(I_tensor)
+    # Optimized: For diagonal inertia tensors, inverse is trivial
+    I_inv = np.diag(1.0 / np.diag(I_tensor))
     
     # 2. Compute Aerodynamic Instability Torque
     # Need CG position for moment arm

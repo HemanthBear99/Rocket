@@ -81,7 +81,12 @@ def compute_atmosphere_properties(altitude: float) -> tuple:
     return T, P, rho, speed_of_sound
 
 def compute_atmospheric_density(altitude: float) -> float:
-    """Legacy wrapper for compatibility."""
+    """Legacy wrapper for compatibility. Use compute_atmosphere_properties instead."""
+    import warnings
+    warnings.warn(
+        "compute_atmospheric_density is deprecated. Use compute_atmosphere_properties()[2] instead.",
+        DeprecationWarning, stacklevel=2
+    )
     _, _, rho, _ = compute_atmosphere_properties(altitude)
     return rho
 
@@ -232,8 +237,6 @@ def compute_aerodynamic_moment(r: np.ndarray, v: np.ndarray, q: np.ndarray, cg_p
     
     # Normal Force Calculation (Linearized Aerodynamics)
     # F_normal is proportional to Angle of Attack * q_dyn * Area
-    # C_N_alpha approx 3.0 to 4.0 per radian for a rocket cylinder+nose
-    C_N_alpha = 4.0 
     
     # Calculate transverse velocity magnitude
     v_transverse = np.sqrt(vx**2 + vy**2)
@@ -246,7 +249,7 @@ def compute_aerodynamic_moment(r: np.ndarray, v: np.ndarray, q: np.ndarray, cg_p
     alpha = np.arctan2(v_transverse, abs(vz))
     
     # Normal Force Magnitude
-    Fn_mag = q_dyn * C.REFERENCE_AREA * C_N_alpha * alpha
+    Fn_mag = q_dyn * C.REFERENCE_AREA * C.C_N_ALPHA * alpha
     
     # Direction of Normal Force in Body Frame
     # Acts in the direction of the transverse wind component?

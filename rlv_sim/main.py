@@ -87,8 +87,8 @@ def check_termination(state: State) -> tuple:
     if state.t >= C.MAX_TIME:
         return True, "Maximum simulation time reached"
     
-    # Check if crashed (altitude < 0)
-    if state.altitude < -1000:  # Allow some margin for numerical errors
+    # Check if crashed (altitude below tolerance)
+    if state.altitude < C.CRASH_ALTITUDE_TOLERANCE:
         return True, "CRASH - Below Earth's surface"
     
     return False, None
@@ -205,9 +205,9 @@ def run_simulation(dt: float = None, max_time: float = None,
         
         # Progress update every 10 seconds of sim time
         if verbose and state.t - last_print_time >= 10.0:
-            print(f"  t={state.t:6.1f}s | alt={state.altitude/1000:6.1f}km | "
-                  f"v={state.speed:7.1f}m/s | m={state.m:7.1f}kg | "
-                  f"phase={guidance['phase']}")
+            logger.info(f"t={state.t:6.1f}s | alt={state.altitude/1000:6.1f}km | "
+                       f"v={state.speed:7.1f}m/s | m={state.m:7.1f}kg | "
+                       f"phase={guidance['phase']}")
             last_print_time = state.t
     
     elapsed = time.time() - start_time

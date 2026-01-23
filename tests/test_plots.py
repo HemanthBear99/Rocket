@@ -34,6 +34,11 @@ class MockLog:
         self.position_y = list(np.linspace(0, 50e3, n_points))
         self.position_z = list(np.linspace(0, 30e3, n_points))
         
+        # Velocity components in ECI
+        self.velocity_x = list(np.linspace(0, 100, n_points))  # m/s
+        self.velocity_y = list(np.linspace(465, 600, n_points))  # m/s (Earth rotation)
+        self.velocity_z = list(np.linspace(0, 2800, n_points))  # m/s (radial component)
+        
         self.quaternion_norm = list(np.ones(n_points))
 
 
@@ -52,6 +57,8 @@ class TestPlotGeneration(unittest.TestCase):
     
     def test_generate_all_plots_creates_files(self):
         """generate_all_plots should create plot files."""
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
         from generate_plots import generate_all_plots
         
         # Create mock final state
@@ -70,6 +77,8 @@ class TestPlotGeneration(unittest.TestCase):
     
     def test_plot_directory_created(self):
         """Plot directory should be created if it doesn't exist."""
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
         from generate_plots import generate_all_plots
         
         mock_state = MagicMock()

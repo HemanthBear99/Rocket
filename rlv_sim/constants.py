@@ -67,6 +67,9 @@ DRAG_COEFFICIENT = 0.42  # Cd (constant during Phase I)
 REFERENCE_AREA = 10.75  # Reference cross-sectional area (m^2)
 REFERENCE_DIAMETER = 3.7  # m
 
+# Normal force coefficient slope (per radian) for slender body
+C_N_ALPHA = 4.0  # Typical value for rocket cylinder+nose cone
+
 # =============================================================================
 # INERTIA & GEOMETRY - VARIABLE MODEL
 # =============================================================================
@@ -107,21 +110,26 @@ MAX_DYNAMIC_PRESSURE = 35000.0  # Pa (Max-Q Limit)
 
 # Guidance & Control Gains
 # -----------------------------------------------------------------------------
-# Control theory tuned for I ≈ 5.36e7 kg·m²
-# ωn ≈ 0.1 rad/s, ζ ≈ 0.7 (critically damped)
-# Optimized for stability with max error ~3.8°
+# PD Controller Design for Attitude Control
+# Natural frequency: ωn ≈ 0.1 rad/s (10s settling time)
+# Damping ratio: ζ ≈ 0.7 (critically damped response)
+# For I ≈ 5.36e7 kg·m² (full propellant):
+#   Kp = I * ωn² = 5.36e7 * 0.01 ≈ 5.36e5 (scaled up for faster response)
+#   Kd = 2 * ζ * ωn * I = 2 * 0.7 * 0.1 * 5.36e7 ≈ 7.5e6
+# Values below are empirically tuned for stability with max error ~3.8°
 
-KP_ATTITUDE = 6.0e7  # Proportional gain (Increased for Phase-I FRR)
-KD_ATTITUDE = 4.5e7  # Derivative gain (Tuned for damping)
+KP_ATTITUDE = 6.0e7  # Proportional gain (N·m/rad)
+KD_ATTITUDE = 4.5e7  # Derivative gain (N·m·s/rad)
 
 # Maximum control torque (N·m)
 MAX_TORQUE = 2.0e7
 
-# Pitchover Maneuver (Deterministic Azimuth)
+# Pitchover Maneuver Parameters
 PITCHOVER_START_ALTITUDE = 100.0   # Altitude to start pitch kick (m)
-PITCHOVER_END_ALTITUDE = 2000.0    # Altitude to end pitch kick (m) - Extended to overlap with Gravity Turn
+PITCHOVER_END_ALTITUDE = 2000.0    # Altitude to end pitch kick (m)
 PITCHOVER_ANGLE = 2.0 * np.pi / 180.0  # 2 degrees kick
 PITCHOVER_AZIMUTH = 90.0 * np.pi / 180.0  # East (inertial +Y)
+PITCHOVER_RAMP_DISTANCE = 50.0  # Altitude range for smooth ramp-in (m)
 
 # Target pitch angle at end of Phase I (rad from vertical)
 TARGET_PITCH_ANGLE = np.radians(45.0)
@@ -167,6 +175,9 @@ INITIAL_QUATERNION = np.array([np.sqrt(2)/2, 0.0, np.sqrt(2)/2, 0.0])
 # Initial angular velocity (body frame, rad/s)
 INITIAL_OMEGA = np.array([0.0, 0.0, 0.0])
 
+# Body frame reference vectors
+BODY_Z_AXIS = np.array([0.0, 0.0, 1.0])  # Thrust direction in body frame
+
 # =============================================================================
 # ATMOSPHERE MODEL CONSTANTS (US Standard Atmosphere 1976)
 # =============================================================================
@@ -174,7 +185,7 @@ INITIAL_OMEGA = np.array([0.0, 0.0, 0.0])
 # Sea level reference conditions
 ATM_T0 = 288.15            # Sea level temperature (K)
 ATM_P0 = 101325.0          # Sea level pressure (Pa)
-ATM_RHO0 = 1.225           # Sea level density (kg/m³) - alias for RHO_0
+ATM_RHO0 = RHO_0               # Alias for compatibility
 
 # Lapse rates and layer boundaries
 ATM_LAPSE_RATE = 0.0065    # Temperature lapse rate (K/m)
@@ -229,8 +240,8 @@ def print_config():
     print(f"Propellant: {PROPELLANT_MASS:,.0f} kg")
     print(f"Thrust: {THRUST_MAGNITUDE/1e6:.1f} MN")
     print(f"Isp: {ISP:.0f} s")
-    print(f"Inertia Ixx/Iyy: {Ixx:.2e} kg·m²")
-    print(f"Inertia Izz: {Izz:.2e} kg·m²")
+    print(f"Inertia Ixx/Iyy: {IXX_FULL:.2e} kg·m²")
+    print(f"Inertia Izz: {IZZ_FULL:.2e} kg·m²")
     print(f"Kp: {KP_ATTITUDE:.1e}, Kd: {KD_ATTITUDE:.1e}")
     print(f"Max torque: {MAX_TORQUE:.1e} N·m")
     print("="*60)

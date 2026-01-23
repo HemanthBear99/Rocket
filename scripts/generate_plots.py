@@ -465,6 +465,110 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     saved_files.append(path)
     plt.close(fig)
     
+    # =========================================================================
+    # Combined Dashboard - Ascent Profile
+    # =========================================================================
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle('RLV Phase-I Ascent Profile', fontsize=16, fontweight='bold')
+    
+    # Altitude
+    axes[0,0].fill_between(time, 0, altitude, alpha=0.3, color='blue')
+    axes[0,0].plot(time, altitude, 'b-', linewidth=2)
+    axes[0,0].scatter([time[-1]], [altitude[-1]], c='red', s=80, marker='x')
+    axes[0,0].set_xlabel('Time (s)')
+    axes[0,0].set_ylabel('Altitude (km)')
+    axes[0,0].set_title('Altitude')
+    
+    # Velocity
+    axes[0,1].fill_between(time, 0, velocity, alpha=0.3, color='red')
+    axes[0,1].plot(time, velocity, 'r-', linewidth=2)
+    axes[0,1].scatter([time[-1]], [velocity[-1]], c='red', s=80, marker='x')
+    axes[0,1].set_xlabel('Time (s)')
+    axes[0,1].set_ylabel('Velocity (m/s)')
+    axes[0,1].set_title('Velocity')
+    
+    # Mass
+    axes[1,0].fill_between(time, 0, mass_tonnes, alpha=0.3, color='green')
+    axes[1,0].plot(time, mass_tonnes, 'g-', linewidth=2)
+    axes[1,0].axhline(y=C.DRY_MASS/1000, color='orange', linestyle='--')
+    axes[1,0].set_xlabel('Time (s)')
+    axes[1,0].set_ylabel('Mass (tonnes)')
+    axes[1,0].set_title('Mass')
+    
+    # Pitch
+    axes[1,1].fill_between(time, 0, pitch_angle, alpha=0.3, color='purple')
+    axes[1,1].plot(time, pitch_angle, color='purple', linewidth=2)
+    axes[1,1].set_xlabel('Time (s)')
+    axes[1,1].set_ylabel('Pitch (deg)')
+    axes[1,1].set_title('Pitch Angle')
+    
+    plt.tight_layout()
+    path = os.path.join(output_dir, 'ascent_profile.png')
+    fig.savefig(path, bbox_inches='tight')
+    saved_files.append(path)
+    plt.close(fig)
+    
+    # =========================================================================
+    # Combined Dashboard - Control Dynamics
+    # =========================================================================
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle('RLV Phase-I Control Dynamics', fontsize=16, fontweight='bold')
+    
+    # Attitude Error
+    axes[0,0].fill_between(time, 0, attitude_error, alpha=0.3, color='cyan')
+    axes[0,0].plot(time, attitude_error, 'c-', linewidth=1.5)
+    axes[0,0].axhline(y=1.0, color='orange', linestyle='--')
+    axes[0,0].set_xlabel('Time (s)')
+    axes[0,0].set_ylabel('Error (deg)')
+    axes[0,0].set_title('Attitude Error')
+    
+    # Control Torque
+    axes[0,1].fill_between(time, 0, torque_mn, alpha=0.3, color='orange')
+    axes[0,1].plot(time, torque_mn, color='orange', linewidth=1.5)
+    axes[0,1].set_xlabel('Time (s)')
+    axes[0,1].set_ylabel('Torque (MN·m)')
+    axes[0,1].set_title('Control Torque')
+    
+    # Pitch Angle
+    axes[1,0].fill_between(time, 0, pitch_angle, alpha=0.3, color='purple')
+    axes[1,0].plot(time, pitch_angle, color='purple', linewidth=2)
+    axes[1,0].set_xlabel('Time (s)')
+    axes[1,0].set_ylabel('Pitch (deg)')
+    axes[1,0].set_title('Pitch Command')
+    
+    # Flight Path Angle
+    axes[1,1].fill_between(time, 0, gamma_rel, alpha=0.3, color='blue')
+    axes[1,1].plot(time, gamma_rel, 'b-', linewidth=2)
+    axes[1,1].set_xlabel('Time (s)')
+    axes[1,1].set_ylabel('γ (deg)')
+    axes[1,1].set_title('Flight Path Angle')
+    
+    plt.tight_layout()
+    path = os.path.join(output_dir, 'control_dynamics.png')
+    fig.savefig(path, bbox_inches='tight')
+    saved_files.append(path)
+    plt.close(fig)
+    
+    # =========================================================================
+    # Trajectory Overview
+    # =========================================================================
+    fig, ax = plt.subplots(figsize=(12, 8))
+    scatter = ax.scatter(downrange, altitude, c=time, cmap='viridis', s=3, label='Trajectory')
+    cbar = plt.colorbar(scatter, ax=ax, label='Time (s)')
+    ax.scatter([downrange[0]], [altitude[0]], c='green', s=150, marker='o', zorder=5, label='Liftoff')
+    ax.scatter([downrange[-1]], [altitude[-1]], c='red', s=150, marker='x', zorder=5, label='MECO')
+    ax.set_xlabel('Downrange (km)')
+    ax.set_ylabel('Altitude (km)')
+    ax.set_title('Trajectory Overview (Color = Time)', fontweight='bold', style='italic')
+    ax.legend(loc='upper left')
+    ax.set_xlim(0, None)
+    ax.set_ylim(0, None)
+    plt.tight_layout()
+    path = os.path.join(output_dir, 'trajectory.png')
+    fig.savefig(path, bbox_inches='tight')
+    saved_files.append(path)
+    plt.close(fig)
+    
     return saved_files
 
 

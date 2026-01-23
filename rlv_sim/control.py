@@ -33,8 +33,8 @@ def compute_commanded_quaternion(desired_direction: np.ndarray) -> np.ndarray:
         Commanded quaternion [w, x, y, z]
     """
     # Body +Z must point along desired direction
-    # direction_to_quaternion rotates [0,0,1] to the target direction
-    return direction_to_quaternion(desired_direction, np.array([0, 0, 1]))
+    # direction_to_quaternion rotates BODY_Z to the target direction
+    return direction_to_quaternion(desired_direction, C.BODY_Z_AXIS)
 
 
 def compute_attitude_error(q_current: np.ndarray, 
@@ -164,5 +164,5 @@ def compute_control_output(q_current: np.ndarray, omega: np.ndarray,
         'error_degrees': np.degrees(error_angle),
         'torque': torque,
         'torque_magnitude': np.linalg.norm(torque),
-        'saturated': np.linalg.norm(torque) >= C.MAX_TORQUE * 0.99
+        'saturated': np.linalg.norm(torque) >= C.MAX_TORQUE * 0.999  # 99.9% of max
     }

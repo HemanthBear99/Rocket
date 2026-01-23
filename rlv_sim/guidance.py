@@ -65,7 +65,7 @@ def compute_local_horizontal(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     return v_rel / v_rel_norm
 
 
-def compute_blend_parameter(altitude: float, velocity: float = 0.0) -> float:
+def compute_blend_parameter(altitude: float) -> float:
     """
     Compute blend parameter alpha for altitude-based gravity turn.
     PDF Section 8.7:
@@ -73,7 +73,6 @@ def compute_blend_parameter(altitude: float, velocity: float = 0.0) -> float:
     
     Args:
         altitude: Altitude above Earth surface (m)
-        velocity: Velocity magnitude (m/s) - kept for compatibility, not used
         
     Returns:
         Blend factor (0 to 1)
@@ -95,7 +94,7 @@ def compute_pitchover_direction(r: np.ndarray, vertical: np.ndarray) -> np.ndarr
     """
     Compute the pitchover kick direction in inertial frame.
     
-    The pitchover tilts the thrust toward the target azimuth (East = +Y in our frame).
+    The pitchover tilts the thrust toward the target azimuth (East).
     This initiates the gravity turn by providing a small perturbation from vertical.
     
     Args:
@@ -105,17 +104,19 @@ def compute_pitchover_direction(r: np.ndarray, vertical: np.ndarray) -> np.ndarr
     Returns:
         Unit vector in the pitchover direction (inertial frame)
     """
-    # Pitchover azimuth is East (90°), which corresponds to +Y in ECI frame
-    # when launch site is at [R_earth, 0, 0]
-    # 
-    # More generally, the "East" direction at position r is:
-    # east = normalize(cross([0,0,1], r)) for equatorial launch
-    # But for simplicity at equator launch along +X, East = +Y
-    east = np.array([0.0, 1.0, 0.0])
+    # Compute East direction at current position
+    # East = normalize(Z_earth × r) for any launch site
+    z_earth = np.array([0.0, 0.0, 1.0])  # Earth rotation axis
+    east = np.cross(z_earth, r)
+    east_norm = np.linalg.norm(east)
+    
+    if east_norm < 1e-10:
+        # At poles, East is undefined - use +Y as fallback
+        east = np.array([0.0, 1.0, 0.0])
+    else:
+        east = east / east_norm
     
     # Compute the pitchover direction by tilting vertical toward east
-    # Using Rodrigues' rotation: rotate vertical by PITCHOVER_ANGLE about axis perpendicular to both
-    # Simpler approach: linear blend then normalize
     # pitchover_dir = cos(theta) * vertical + sin(theta) * east
     cos_theta = np.cos(C.PITCHOVER_ANGLE)
     sin_theta = np.sin(C.PITCHOVER_ANGLE)
@@ -139,18 +140,13 @@ def compute_pitchover_blend(altitude: float) -> float:
     """
     if altitude < C.PITCHOVER_START_ALTITUDE:
         return 0.0
-    # REMOVED hard cutoff to prevent snap-back
     else:
-        # Use a short ramp-in and ramp-out for smoothness
-        # Ramp zones: first 50m and last 50m of the phase
-        ramp_distance = 50.0  # meters
-        
-        if altitude < C.PITCHOVER_START_ALTITUDE + ramp_distance:
-            # Ramp up from 0 to 1 in first 50m
-            return (altitude - C.PITCHOVER_START_ALTITUDE) / ramp_distance
+        # Use smooth ramp-in for pitchover
+        if altitude < C.PITCHOVER_START_ALTITUDE + C.PITCHOVER_RAMP_DISTANCE:
+            # Ramp up from 0 to 1 over ramp distance
+            return (altitude - C.PITCHOVER_START_ALTITUDE) / C.PITCHOVER_RAMP_DISTANCE
         else:
             # Hold at 1.0 - Let Gravity Turn blend take over naturally
-            # Do NOT ramp down back to vertical, as that causes the "step"
             return 1.0
 
 
@@ -260,23 +256,7 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray,
     # =========================================================================
     # MAX-Q THROTTLING LOGIC
     # =========================================================================
-    # Calculate Dynamic Pressure (q)
-    # q = 0.5 * rho * v^2
-    _, _, rho, _ = C.compute_atmosphere_properties(altitude) if hasattr(C, 'compute_atmosphere_properties') else (0,0,0,0)
-    # Need to import compute_atmosphere_properties from somewhere or replicate logic?
-    # Actually, forces.py is downstream. Guidance shouldn't depend on forces?
-    # Ideally, environment should be a shared module or utilities.
-    # But for now, we can simple-calculate rho using the constant model or import from forces (circular import risk?).
-    # `forces` imports `constants`, `frames`, `utils`. `guidance` imports `constants`, `types`, `utils`.
-    # Let's verify `forces.py` imports.
-    # `rlv_sim.forces` is a module. We can avoid circular import by importing inside function?
-    # Or better: `compute_atmosphere_properties` is in `forces.py`.
-    # Let's rely on `utils.py`? No, it's in `forces`.
-    # Refactor: Move `compute_atmosphere_properties` to `utils.py`?
-    # OR: Just approximate rho for guidance?
-    # No, we need to match forces.
-    # Let's import inside function for now to break circularity if any.
-    
+    # Calculate Dynamic Pressure using atmospheric properties
     from .forces import compute_atmosphere_properties
     _, _, rho, _ = compute_atmosphere_properties(altitude)
     

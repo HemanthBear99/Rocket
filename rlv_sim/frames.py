@@ -8,7 +8,6 @@ Quaternion Convention: [w, x, y, z] where w is the scalar component.
 """
 
 import numpy as np
-from typing import Tuple
 
 from . import constants as C
 
@@ -308,7 +307,7 @@ def quaternion_error(q_current: np.ndarray, q_desired: np.ndarray) -> np.ndarray
     return q_err
 
 
-def quaternion_to_axis_angle(q: np.ndarray) -> Tuple[np.ndarray, float]:
+def quaternion_to_axis_angle(q: np.ndarray) -> tuple[np.ndarray, float]:
     """
     Convert a quaternion to axis-angle representation.
     
