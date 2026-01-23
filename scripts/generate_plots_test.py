@@ -319,22 +319,9 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
     
     ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Flight Path Angle $\gamma$ (degrees from Horizontal)')
-    ax.set_title('Flight Path Angle: Relative vs Inertial\n($\gamma$ = angle from local horizontal; 90° = vertical climb, 0° = level flight)', 
-                 fontweight='bold', style='italic')
-    ax.legend(loc='center right')
-    ax.set_ylim(-5, 100)
-    ax.set_xlim(0, time[-1])
-    
-    # Physics explanation box
-    textstr = ('Physics Definition:\n'
-               '• $\gamma$ = angle from LOCAL HORIZONTAL\n'
-               '• 90° = vertical climb (straight up)\n'
-               '• 0° = horizontal flight (level)\n'
-               '• Gravity turn: $\gamma$ decreases toward 0°')
-    props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.9)
-    ax.text(0.02, 0.35, textstr, transform=ax.transAxes, fontsize=9,
-            verticalalignment='top', bbox=props)
+    ax.set_ylabel('Flight Path Angle (degrees)')
+    ax.set_title('Flight Path Angle: Relative vs Inertial', fontweight='bold', style='italic')
+    ax.legend(loc='lower left')
     plt.tight_layout()
     path = os.path.join(output_dir, '11_flight_path_angle.png')
     fig.savefig(path, bbox_inches='tight')
@@ -395,76 +382,6 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     saved_files.append(path)
     plt.close(fig)
     
-    # =========================================================================
-    # 14. DIAGNOSTIC: Pitch θ vs Velocity Tilt atan(vh/vz)
-    # =========================================================================
-    # This plot addresses the concern about thrust/attitude coupling:
-    # If pitch ~ 0-3° from vertical, but trajectory moves 70km East + 110km North,
-    # there may be a mismatch in angle definitions or thrust direction.
-    
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
-    
-    # Compute velocity components in local frame
-    # Use relative velocity for local-frame analysis
-    # vh = horizontal component, vz = vertical (radial) component
-    v_horizontal = np.sqrt(v_rel_mag**2 - v_rel_radial**2)  # Tangential component
-    v_vertical = v_rel_radial  # Radial (upward) component
-    
-    # Velocity tilt angle: atan(vh / vz) - angle from vertical
-    # When vz >> vh, angle is small (nearly vertical climb)
-    # When vh >> vz, angle is large (nearly horizontal)
-    velocity_tilt = np.degrees(np.arctan2(v_horizontal, np.maximum(v_vertical, 0.1)))
-    
-    # Subplot 1: Pitch vs Velocity Tilt (both from vertical)
-    ax1.plot(time, pitch_angle, 'purple', linewidth=2.5, label='Pitch $\\theta$ (from Vertical)')
-    ax1.plot(time, velocity_tilt, 'g--', linewidth=2, label='Velocity Tilt atan($v_h/v_z$)')
-    ax1.set_ylabel('Angle from Vertical (deg)')
-    ax1.set_title('Diagnostic: Pitch Angle vs Velocity Tilt Direction', fontweight='bold')
-    ax1.legend(loc='upper left')
-    ax1.grid(True)
-    ax1.set_ylim(0, max(90, np.max(velocity_tilt) * 1.1))
-    
-    # Subplot 2: Velocity Components
-    ax2.plot(time, v_horizontal, 'b-', linewidth=2, label='Horizontal Velocity $v_h$')
-    ax2.plot(time, v_vertical, 'r-', linewidth=2, label='Vertical Velocity $v_z$ (radial)')
-    ax2.set_ylabel('Velocity (m/s)')
-    ax2.set_title('Velocity Components (Relative to Earth Surface)', fontweight='bold')
-    ax2.legend(loc='upper left')
-    ax2.grid(True)
-    
-    # Subplot 3: Downrange motion analysis
-    downrange_east = (pos_y - pos_y[0]) / 1000  # East
-    downrange_north = (pos_x - pos_x[0]) / 1000  # North
-    downrange_total = np.sqrt(downrange_east**2 + downrange_north**2)
-    
-    ax3.plot(time, downrange_total, 'b-', linewidth=2, label='Total Downrange')
-    ax3.plot(time, downrange_east, 'c--', linewidth=1.5, label='East')
-    ax3.plot(time, downrange_north, 'm--', linewidth=1.5, label='North')
-    ax3.set_ylabel('Distance (km)')
-    ax3.set_xlabel('Time (s)')
-    ax3.set_title('Downrange Motion Components', fontweight='bold')
-    ax3.legend(loc='upper left')
-    ax3.grid(True)
-    
-    # Add summary annotation
-    final_east = downrange_east[-1]
-    final_north = downrange_north[-1]
-    summary_text = (f'MECO Summary:\n'
-                    f'• East: {final_east:.1f} km\n'
-                    f'• North: {final_north:.1f} km\n'
-                    f'• Total Downrange: {downrange_total[-1]:.1f} km\n'
-                    f'• Final Pitch: {pitch_angle[-1]:.1f}° from vertical\n'
-                    f'• Final Velocity Tilt: {velocity_tilt[-1]:.1f}° from vertical')
-    props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.9)
-    ax3.text(0.98, 0.95, summary_text, transform=ax3.transAxes, fontsize=9,
-             verticalalignment='top', ha='right', bbox=props)
-    
-    plt.tight_layout()
-    path = os.path.join(output_dir, '14_pitch_vs_velocity_tilt.png')
-    fig.savefig(path, bbox_inches='tight')
-    saved_files.append(path)
-    plt.close(fig)
-    
     return saved_files
 
 
@@ -484,3 +401,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

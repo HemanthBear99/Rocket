@@ -319,22 +319,9 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
     
     ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Flight Path Angle $\gamma$ (degrees from Horizontal)')
-    ax.set_title('Flight Path Angle: Relative vs Inertial\n($\gamma$ = angle from local horizontal; 90° = vertical climb, 0° = level flight)', 
-                 fontweight='bold', style='italic')
-    ax.legend(loc='center right')
-    ax.set_ylim(-5, 100)
-    ax.set_xlim(0, time[-1])
-    
-    # Physics explanation box
-    textstr = ('Physics Definition:\n'
-               '• $\gamma$ = angle from LOCAL HORIZONTAL\n'
-               '• 90° = vertical climb (straight up)\n'
-               '• 0° = horizontal flight (level)\n'
-               '• Gravity turn: $\gamma$ decreases toward 0°')
-    props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.9)
-    ax.text(0.02, 0.35, textstr, transform=ax.transAxes, fontsize=9,
-            verticalalignment='top', bbox=props)
+    ax.set_ylabel('Flight Path Angle (degrees)')
+    ax.set_title('Flight Path Angle: Relative vs Inertial', fontweight='bold', style='italic')
+    ax.legend(loc='lower left')
     plt.tight_layout()
     path = os.path.join(output_dir, '11_flight_path_angle.png')
     fig.savefig(path, bbox_inches='tight')
@@ -395,72 +382,142 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     saved_files.append(path)
     plt.close(fig)
     
-    # =========================================================================
-    # 14. DIAGNOSTIC: Pitch θ vs Velocity Tilt atan(vh/vz)
-    # =========================================================================
-    # This plot addresses the concern about thrust/attitude coupling:
-    # If pitch ~ 0-3° from vertical, but trajectory moves 70km East + 110km North,
-    # there may be a mismatch in angle definitions or thrust direction.
+    return saved_files
     
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
+    # Markers
+    ax.scatter([time[liftoff_idx]], [gamma[liftoff_idx]], 
+               c='green', s=100, marker='o', zorder=5, label=f'Liftoff (γ={gamma[liftoff_idx]:.1f}°)')
+    gamma_min_idx = np.argmin(gamma)
+    ax.scatter([time[gamma_min_idx]], [gamma[gamma_min_idx]], 
+               c='orange', s=100, marker='D', zorder=5, label=f'Min (γ={gamma[gamma_min_idx]:.1f}°)')
+    ax.scatter([time[meco_idx]], [gamma[meco_idx]], 
+               c='red', s=100, marker='x', zorder=5, label=f'MECO (γ={gamma[meco_idx]:.1f}°)')
     
-    # Compute velocity components in local frame
-    # Use relative velocity for local-frame analysis
-    # vh = horizontal component, vz = vertical (radial) component
-    v_horizontal = np.sqrt(v_rel_mag**2 - v_rel_radial**2)  # Tangential component
-    v_vertical = v_rel_radial  # Radial (upward) component
-    
-    # Velocity tilt angle: atan(vh / vz) - angle from vertical
-    # When vz >> vh, angle is small (nearly vertical climb)
-    # When vh >> vz, angle is large (nearly horizontal)
-    velocity_tilt = np.degrees(np.arctan2(v_horizontal, np.maximum(v_vertical, 0.1)))
-    
-    # Subplot 1: Pitch vs Velocity Tilt (both from vertical)
-    ax1.plot(time, pitch_angle, 'purple', linewidth=2.5, label='Pitch $\\theta$ (from Vertical)')
-    ax1.plot(time, velocity_tilt, 'g--', linewidth=2, label='Velocity Tilt atan($v_h/v_z$)')
-    ax1.set_ylabel('Angle from Vertical (deg)')
-    ax1.set_title('Diagnostic: Pitch Angle vs Velocity Tilt Direction', fontweight='bold')
-    ax1.legend(loc='upper left')
-    ax1.grid(True)
-    ax1.set_ylim(0, max(90, np.max(velocity_tilt) * 1.1))
-    
-    # Subplot 2: Velocity Components
-    ax2.plot(time, v_horizontal, 'b-', linewidth=2, label='Horizontal Velocity $v_h$')
-    ax2.plot(time, v_vertical, 'r-', linewidth=2, label='Vertical Velocity $v_z$ (radial)')
-    ax2.set_ylabel('Velocity (m/s)')
-    ax2.set_title('Velocity Components (Relative to Earth Surface)', fontweight='bold')
-    ax2.legend(loc='upper left')
-    ax2.grid(True)
-    
-    # Subplot 3: Downrange motion analysis
-    downrange_east = (pos_y - pos_y[0]) / 1000  # East
-    downrange_north = (pos_x - pos_x[0]) / 1000  # North
-    downrange_total = np.sqrt(downrange_east**2 + downrange_north**2)
-    
-    ax3.plot(time, downrange_total, 'b-', linewidth=2, label='Total Downrange')
-    ax3.plot(time, downrange_east, 'c--', linewidth=1.5, label='East')
-    ax3.plot(time, downrange_north, 'm--', linewidth=1.5, label='North')
-    ax3.set_ylabel('Distance (km)')
-    ax3.set_xlabel('Time (s)')
-    ax3.set_title('Downrange Motion Components', fontweight='bold')
-    ax3.legend(loc='upper left')
-    ax3.grid(True)
-    
-    # Add summary annotation
-    final_east = downrange_east[-1]
-    final_north = downrange_north[-1]
-    summary_text = (f'MECO Summary:\n'
-                    f'• East: {final_east:.1f} km\n'
-                    f'• North: {final_north:.1f} km\n'
-                    f'• Total Downrange: {downrange_total[-1]:.1f} km\n'
-                    f'• Final Pitch: {pitch_angle[-1]:.1f}° from vertical\n'
-                    f'• Final Velocity Tilt: {velocity_tilt[-1]:.1f}° from vertical')
+    # Physics explanation box
+    textstr = 'Physics Explanation:\n• At liftoff, velocity is horizontal (Earth rotation) → γ=90°\n• Thrust adds vertical velocity → γ decreases towards 0° (vertical)\n• Gravity turn bends trajectory → γ increases towards 90°'
     props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.9)
-    ax3.text(0.98, 0.95, summary_text, transform=ax3.transAxes, fontsize=9,
-             verticalalignment='top', ha='right', bbox=props)
+    ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=8,
+            verticalalignment='top', bbox=props)
+    
+    # Annotation for gravity turn
+    ax.annotate('Gravity Turn\nStart', xy=(gravity_turn_time, gamma[gravity_turn_idx]),
+                xytext=(gravity_turn_time + 10, gamma[gravity_turn_idx] + 15),
+                fontsize=9, style='italic', color='gray',
+                arrowprops=dict(arrowstyle='->', color='gray', alpha=0.7))
+    
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Flight Path Angle γ (°)')
+    ax.set_title('Flight Path Angle Evolution\n(γ = angle of velocity from local vertical)', 
+                 fontweight='bold', style='italic')
+    ax.legend(loc='lower left', fontsize=9)
+    ax.set_xlim(0, time[-1])
+    ax.set_ylim(-10, 100)
+    plt.tight_layout()
+    path = os.path.join(output_dir, '11_flight_path_angle.png')
+    fig.savefig(path, bbox_inches='tight')
+    saved_files.append(path)
+    plt.close(fig)
+    
+    # =========================================================================
+    # Combined Dashboard - Ascent Profile
+    # =========================================================================
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle('RLV Phase-I Ascent Profile', fontsize=16, fontweight='bold')
+    
+    # Altitude
+    axes[0,0].fill_between(time, 0, altitude, alpha=0.3, color='blue')
+    axes[0,0].plot(time, altitude, 'b-', linewidth=2)
+    axes[0,0].scatter([time[-1]], [altitude[-1]], c='red', s=80, marker='x')
+    axes[0,0].set_xlabel('Time (s)')
+    axes[0,0].set_ylabel('Altitude (km)')
+    axes[0,0].set_title('Altitude')
+    
+    # Velocity
+    axes[0,1].fill_between(time, 0, velocity, alpha=0.3, color='red')
+    axes[0,1].plot(time, velocity, 'r-', linewidth=2)
+    axes[0,1].scatter([time[-1]], [velocity[-1]], c='red', s=80, marker='x')
+    axes[0,1].set_xlabel('Time (s)')
+    axes[0,1].set_ylabel('Velocity (m/s)')
+    axes[0,1].set_title('Velocity')
+    
+    # Mass
+    axes[1,0].fill_between(time, 0, mass_tonnes, alpha=0.3, color='green')
+    axes[1,0].plot(time, mass_tonnes, 'g-', linewidth=2)
+    axes[1,0].axhline(y=C.DRY_MASS/1000, color='orange', linestyle='--')
+    axes[1,0].set_xlabel('Time (s)')
+    axes[1,0].set_ylabel('Mass (tonnes)')
+    axes[1,0].set_title('Mass')
+    
+    # Pitch
+    axes[1,1].fill_between(time, 0, pitch_angle, alpha=0.3, color='purple')
+    axes[1,1].plot(time, pitch_angle, color='purple', linewidth=2)
+    axes[1,1].set_xlabel('Time (s)')
+    axes[1,1].set_ylabel('Pitch (deg)')
+    axes[1,1].set_title('Pitch Angle')
     
     plt.tight_layout()
-    path = os.path.join(output_dir, '14_pitch_vs_velocity_tilt.png')
+    path = os.path.join(output_dir, 'ascent_profile.png')
+    fig.savefig(path, bbox_inches='tight')
+    saved_files.append(path)
+    plt.close(fig)
+    
+    # =========================================================================
+    # Combined Dashboard - Control Dynamics
+    # =========================================================================
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle('RLV Phase-I Control Dynamics', fontsize=16, fontweight='bold')
+    
+    # Attitude Error
+    axes[0,0].fill_between(time, 0, attitude_error, alpha=0.3, color='cyan')
+    axes[0,0].plot(time, attitude_error, 'c-', linewidth=1.5)
+    axes[0,0].axhline(y=1.0, color='orange', linestyle='--')
+    axes[0,0].set_xlabel('Time (s)')
+    axes[0,0].set_ylabel('Error (deg)')
+    axes[0,0].set_title('Attitude Error')
+    
+    # Control Torque
+    axes[0,1].fill_between(time, 0, torque_mn, alpha=0.3, color='orange')
+    axes[0,1].plot(time, torque_mn, color='orange', linewidth=1.5)
+    axes[0,1].set_xlabel('Time (s)')
+    axes[0,1].set_ylabel('Torque (MN·m)')
+    axes[0,1].set_title('Control Torque')
+    
+    # Pitch Angle
+    axes[1,0].fill_between(time, 0, pitch_angle, alpha=0.3, color='purple')
+    axes[1,0].plot(time, pitch_angle, color='purple', linewidth=2)
+    axes[1,0].set_xlabel('Time (s)')
+    axes[1,0].set_ylabel('Pitch (deg)')
+    axes[1,0].set_title('Pitch Command')
+    
+    # Flight Path Angle
+    axes[1,1].fill_between(time, 0, gamma, alpha=0.3, color='blue')
+    axes[1,1].plot(time, gamma, 'b-', linewidth=2)
+    axes[1,1].set_xlabel('Time (s)')
+    axes[1,1].set_ylabel('γ (deg)')
+    axes[1,1].set_title('Flight Path Angle')
+    
+    plt.tight_layout()
+    path = os.path.join(output_dir, 'control_dynamics.png')
+    fig.savefig(path, bbox_inches='tight')
+    saved_files.append(path)
+    plt.close(fig)
+    
+    # =========================================================================
+    # Trajectory Overview
+    # =========================================================================
+    fig, ax = plt.subplots(figsize=(12, 8))
+    scatter = ax.scatter(downrange, altitude, c=time, cmap='viridis', s=3, label='Trajectory')
+    cbar = plt.colorbar(scatter, ax=ax, label='Time (s)')
+    ax.scatter([downrange[0]], [altitude[0]], c='green', s=150, marker='o', zorder=5, label='Liftoff')
+    ax.scatter([downrange[-1]], [altitude[-1]], c='red', s=150, marker='x', zorder=5, label='MECO')
+    ax.set_xlabel('Downrange (km)')
+    ax.set_ylabel('Altitude (km)')
+    ax.set_title('Trajectory Overview (Color = Time)', fontweight='bold', style='italic')
+    ax.legend(loc='upper left')
+    ax.set_xlim(0, None)
+    ax.set_ylim(0, None)
+    plt.tight_layout()
+    path = os.path.join(output_dir, 'trajectory.png')
     fig.savefig(path, bbox_inches='tight')
     saved_files.append(path)
     plt.close(fig)
