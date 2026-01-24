@@ -50,6 +50,7 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     pitch_angle = np.array(log.pitch_angle)
     attitude_error = np.array(log.attitude_error)
     torque = np.array(log.torque_magnitude)
+    actual_pitch = np.array(log.actual_pitch_angle)  # New logged field
     pos_x = np.array(log.position_x)
     pos_y = np.array(log.position_y)
     pos_z = np.array(log.position_z)
@@ -396,13 +397,10 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     plt.close(fig)
     
     # =========================================================================
-    # 14. DIAGNOSTIC: Pitch θ vs Velocity Tilt atan(vh/vz)
+    # 14. DIAGNOSTIC: Pitch vs Velocity Alignments
     # =========================================================================
-    # This plot addresses the concern about thrust/attitude coupling:
-    # If pitch ~ 0-3° from vertical, but trajectory moves 70km East + 110km North,
-    # there may be a mismatch in angle definitions or thrust direction.
     
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 14), sharex=True)
     
     # Compute velocity components in local frame
     # Use relative velocity for local-frame analysis
@@ -412,55 +410,56 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     
     # Velocity tilt angle: atan(vh / vz) - angle from vertical
     # When vz >> vh, angle is small (nearly vertical climb)
-    # When vh >> vz, angle is large (nearly horizontal)
     velocity_tilt = np.degrees(np.arctan2(v_horizontal, np.maximum(v_vertical, 0.1)))
     
     # Subplot 1: Pitch vs Velocity Tilt (both from vertical)
-    ax1.plot(time, pitch_angle, 'purple', linewidth=2.5, label='Pitch $\\theta$ (from Vertical)')
-    ax1.plot(time, velocity_tilt, 'g--', linewidth=2, label='Velocity Tilt atan($v_h/v_z$)')
+    # Check alignment: Actual pitch should lead velocity tilt in a gravity turn
+    ax1.plot(time, pitch_angle, 'purple', linewidth=2.5, alpha=0.6, label='Commanded Pitch (Guidance)')
+    ax1.plot(time, actual_pitch, 'r--', linewidth=2.0, label='Actual Thrust Pitch (Body Z)')
+    ax1.plot(time, velocity_tilt, 'g:', linewidth=2, label='Velocity Tilt atan($v_h/v_z$)')
     ax1.set_ylabel('Angle from Vertical (deg)')
-    ax1.set_title('Diagnostic: Pitch Angle vs Velocity Tilt Direction', fontweight='bold')
+    ax1.set_title('Diagnostic 1: Thrust & Velocity Vector Alignment', fontweight='bold')
     ax1.legend(loc='upper left')
     ax1.grid(True)
     ax1.set_ylim(0, max(90, np.max(velocity_tilt) * 1.1))
+    
+    # Text note on alignment
+    ax1.text(0.02, 0.5, "Gravity Turn Physics:\nPitch < Velocity Tilt => Path straightens up\nPitch > Velocity Tilt => Path curves down", 
+             transform=ax1.transAxes, fontsize=9, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     
     # Subplot 2: Velocity Components
     ax2.plot(time, v_horizontal, 'b-', linewidth=2, label='Horizontal Velocity $v_h$')
     ax2.plot(time, v_vertical, 'r-', linewidth=2, label='Vertical Velocity $v_z$ (radial)')
     ax2.set_ylabel('Velocity (m/s)')
-    ax2.set_title('Velocity Components (Relative to Earth Surface)', fontweight='bold')
+    ax2.set_title('Diagnostic 2: Velocity Components (Relative)', fontweight='bold')
     ax2.legend(loc='upper left')
     ax2.grid(True)
     
-    # Subplot 3: Downrange motion analysis
-    downrange_east = (pos_y - pos_y[0]) / 1000  # East
-    downrange_north = (pos_x - pos_x[0]) / 1000  # North
-    downrange_total = np.sqrt(downrange_east**2 + downrange_north**2)
+    # Subplot 3: Derived Flight Path Angle Check
+    # Verify consistency of gamma calculation
+    gamma_check_deg = np.degrees(np.arctan2(v_vertical, v_horizontal))
     
-    ax3.plot(time, downrange_total, 'b-', linewidth=2, label='Total Downrange')
-    ax3.plot(time, downrange_east, 'c--', linewidth=1.5, label='East')
-    ax3.plot(time, downrange_north, 'm--', linewidth=1.5, label='North')
-    ax3.set_ylabel('Distance (km)')
+    ax3.plot(time, gamma_rel, 'b-', linewidth=4, alpha=0.3, label='Logged Relative $\gamma$')
+    ax3.plot(time, gamma_check_deg, 'k--', linewidth=1.5, label='Computed $\gamma = atan2(v_z, v_h)$')
+    ax3.axhline(90, color='gray', linestyle=':')
+    ax3.set_ylabel('Flight Path Angle (deg)')
     ax3.set_xlabel('Time (s)')
-    ax3.set_title('Downrange Motion Components', fontweight='bold')
-    ax3.legend(loc='upper left')
+    ax3.set_title('Diagnostic 3: Flight Path Angle Consistency Check', fontweight='bold')
+    ax3.legend(loc='lower left')
     ax3.grid(True)
+    ax3.set_ylim(0, 100)
     
-    # Add summary annotation
-    final_east = downrange_east[-1]
-    final_north = downrange_north[-1]
-    summary_text = (f'MECO Summary:\n'
-                    f'• East: {final_east:.1f} km\n'
-                    f'• North: {final_north:.1f} km\n'
-                    f'• Total Downrange: {downrange_total[-1]:.1f} km\n'
-                    f'• Final Pitch: {pitch_angle[-1]:.1f}° from vertical\n'
-                    f'• Final Velocity Tilt: {velocity_tilt[-1]:.1f}° from vertical')
-    props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.9)
+    # Summary stats
+    summary_text = (f'MECO State:\n'
+                    f'Actual Pitch: {actual_pitch[-1]:.1f}°\n'
+                    f'Velocity Tilt: {velocity_tilt[-1]:.1f}°\n'
+                    f'Gamma (Logged): {gamma_rel[-1]:.1f}°\n'
+                    f'Gamma (Check): {gamma_check_deg[-1]:.1f}°')
     ax3.text(0.98, 0.95, summary_text, transform=ax3.transAxes, fontsize=9,
-             verticalalignment='top', ha='right', bbox=props)
+             verticalalignment='top', ha='right', bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9))
     
     plt.tight_layout()
-    path = os.path.join(output_dir, '14_pitch_vs_velocity_tilt.png')
+    path = os.path.join(output_dir, '14_diagnostic_gravity_turn.png')
     fig.savefig(path, bbox_inches='tight')
     saved_files.append(path)
     plt.close(fig)

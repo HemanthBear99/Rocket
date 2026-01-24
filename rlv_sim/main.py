@@ -28,6 +28,8 @@ from .integrators import integrate
 from .validation import validate_state, ValidationError
 from .mass import is_propellant_exhausted
 from .types import GuidanceOutput, ControlOutput
+from .frames import rotate_vector_by_quaternion
+from .guidance import compute_local_vertical
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ class SimulationLog:
     position_y: List[float] = field(default_factory=list)
     position_z: List[float] = field(default_factory=list)
     quaternion_norm: List[float] = field(default_factory=list)
+    actual_pitch_angle: List[float] = field(default_factory=list)
     
     def append(self, state: State, guidance: dict, control: dict):
         """Log data from current timestep."""
@@ -67,6 +70,15 @@ class SimulationLog:
         self.position_y.append(state.r[1])
         self.position_z.append(state.r[2])
         self.quaternion_norm.append(np.linalg.norm(state.q))
+        
+        # Compute and log actual pitch angle (Body Z vs Local Vertical)
+        # Transform Body Z [0,0,1] to Inertial Frame
+        body_z_inertial = rotate_vector_by_quaternion(C.BODY_Z_AXIS, state.q)
+        # Get Local Vertical
+        vertical = compute_local_vertical(state.r)
+        # Compute angle
+        cos_pitch = np.clip(np.dot(vertical, body_z_inertial), -1.0, 1.0)
+        self.actual_pitch_angle.append(np.degrees(np.arccos(cos_pitch)))
 
 
 def check_termination(state: State) -> tuple:
