@@ -258,3 +258,117 @@ def run_validation_suite(state: State, verbose: bool = False) -> dict:
                 print(f"  ✗ {name}: {e}")
     
     return results
+
+
+def compute_total_energy(r: np.ndarray, v: np.ndarray, m: float) -> float:
+    """
+    Compute total mechanical energy (kinetic + potential).
+    
+    E_total = (1/2) * m * |v|² - (μ * m) / |r|
+    
+    Reference: ROCKET_SIMULATION_RULES.md Section 10.1
+    [PHASE I] Critical for validation of integration accuracy
+    
+    Args:
+        r: Position in ECI (m)
+        v: Velocity in ECI (m/s)
+        m: Vehicle mass (kg)
+        
+    Returns:
+        Total mechanical energy (J)
+    """
+    r_norm = np.linalg.norm(r)
+    v_norm = np.linalg.norm(v)
+    
+    if r_norm < C.ZERO_TOLERANCE or m < 0:
+        return 0.0
+    
+    kinetic = 0.5 * m * (v_norm ** 2)
+    potential = -C.MU_EARTH * m / r_norm
+    
+    return float(kinetic + potential)
+
+
+def validate_energy_conservation(E_current: float, E_previous: float, 
+                                 dt: float) -> dict:
+    """
+    Validate energy conservation across a time step.
+    
+    Reference: ROCKET_SIMULATION_RULES.md Section 10.1
+    [PHASE I] Checks that dE/dt change is small (integration quality metric)
+    
+    Args:
+        E_current: Current total energy (J)
+        E_previous: Previous total energy (J)
+        dt: Time step (s)
+        
+    Returns:
+        Dictionary with validation results
+    """
+    if abs(E_previous) < C.ZERO_TOLERANCE:
+        return {'valid': True, 'error': 0.0, 'message': 'Energy too small to validate'}
+    
+    dE = E_current - E_previous
+    dE_dt = dE / dt if dt > 0 else 0.0
+    relative_error = abs(dE_dt) / abs(E_previous) if E_previous != 0 else 0.0
+    
+    is_valid = relative_error < C.ENERGY_TOLERANCE
+    
+    return {
+        'valid': is_valid,
+        'dE': float(dE),
+        'dE_dt': float(dE_dt),
+        'relative_error': float(relative_error),
+        'tolerance': C.ENERGY_TOLERANCE,
+        'message': f"Energy: dE/dt={dE_dt:.2e}, rel_error={relative_error:.2e}"
+    }
+
+
+def validate_constraints(r: np.ndarray, v: np.ndarray, omega: np.ndarray, m: float) -> dict:
+    """
+    Validate physical constraints and limits.
+    
+    Reference: ROCKET_SIMULATION_RULES.md Section 9
+    [PHASE I] Checks structural and operational limits
+    
+    Args:
+        r: Position in ECI (m)
+        v: Velocity in ECI (m/s)
+        omega: Angular velocity in body frame (rad/s)
+        m: Vehicle mass (kg)
+        
+    Returns:
+        Dictionary with constraint status
+    """
+    violations = []
+    altitude = np.linalg.norm(r) - C.R_EARTH
+    velocity = np.linalg.norm(v)
+    omega_mag = np.linalg.norm(omega)
+    
+    # Altitude check
+    if altitude < C.CRASH_ALTITUDE_TOLERANCE:
+        violations.append(f"CRASH: altitude={altitude/1000:.1f} km")
+    
+    # Velocity check (escape velocity)
+    if np.linalg.norm(r) > C.ZERO_TOLERANCE:
+        v_escape = np.sqrt(2 * C.MU_EARTH / np.linalg.norm(r))
+        if velocity > v_escape * 1.1:
+            violations.append(f"Over-velocity: {velocity:.0f} m/s (escape: {v_escape:.0f})")
+    
+    # Angular rate check (structural limit)
+    omega_limit = np.radians(180.0)  # 180 deg/s
+    if omega_mag > omega_limit:
+        violations.append(f"Spin rate: {np.degrees(omega_mag):.1f} deg/s (limit: 180)")
+    
+    # Mass check
+    if m < C.DRY_MASS * 0.99:
+        violations.append(f"Mass: {m:.0f} kg (dry: {C.DRY_MASS:.0f})")
+    
+    return {
+        'valid': len(violations) == 0,
+        'violations': violations,
+        'altitude': float(altitude),
+        'velocity': float(velocity),
+        'omega_mag': float(omega_mag),
+        'mass': float(m)
+    }

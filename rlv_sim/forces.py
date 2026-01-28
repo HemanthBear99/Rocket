@@ -298,8 +298,36 @@ def compute_total_force(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     # Note: Updated compute_thrust_force signature to accept 'r'
     F_thrust = compute_thrust_force(q, r, thrust_on)
     F_drag = compute_drag_force(r, v)
+    F_coriolis = compute_coriolis_force(v, m)
     
-    return F_grav + F_thrust + F_drag
+    return F_grav + F_thrust + F_drag + F_coriolis
+
+
+def compute_coriolis_force(v: np.ndarray, m: float) -> np.ndarray:
+    """
+    Compute Coriolis force due to Earth's rotation.
+    
+    F_coriolis = -2m(ω_E × v)
+    
+    Reference: ROCKET_SIMULATION_RULES.md Section 2.1
+    [PHASE I] Critical at high altitude (> 50 km) and high velocity (> 5 km/s)
+    Impact: ~1-2% correction to acceleration at high altitude
+    
+    Args:
+        v: Velocity in inertial frame (m/s)
+        m: Vehicle mass (kg)
+        
+    Returns:
+        Coriolis force vector (N)
+    """
+    # Earth's angular velocity vector (rad/s) - pointing along Z axis (North Pole)
+    omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
+    
+    # Coriolis acceleration = -2 * ω_E × v
+    coriolis_accel = -2.0 * np.cross(omega_earth, v)
+    
+    # Force = mass × acceleration
+    return m * coriolis_accel
 
 
 def compute_specific_forces(r: np.ndarray, v: np.ndarray, q: np.ndarray,
@@ -310,13 +338,16 @@ def compute_specific_forces(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     F_grav = compute_gravity_force(r, m)
     F_thrust = compute_thrust_force(q, r, thrust_on)
     F_drag = compute_drag_force(r, v)
+    F_coriolis = compute_coriolis_force(v, m)
     
     return {
         'gravity': F_grav,
         'thrust': F_thrust,
         'drag': F_drag,
-        'total': F_grav + F_thrust + F_drag,
+        'coriolis': F_coriolis,
+        'total': F_grav + F_thrust + F_drag + F_coriolis,
         'gravity_magnitude': np.linalg.norm(F_grav),
         'thrust_magnitude': np.linalg.norm(F_thrust),
-        'drag_magnitude': np.linalg.norm(F_drag)
+        'drag_magnitude': np.linalg.norm(F_drag),
+        'coriolis_magnitude': np.linalg.norm(F_coriolis)
     }
