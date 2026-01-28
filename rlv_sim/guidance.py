@@ -260,6 +260,16 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray,
         # Desired direction maintains flight path angle γ
         # This is the natural gravity turn trajectory
         thrust_dir = cos_gamma * vertical + sin_gamma * prograde
+        
+        # [FIX #2] Enforce max pitch angle limit (30°) for structural integrity
+        # At max-Q (35 kPa around 15 km), pitch >30° causes structural failure
+        actual_pitch_rad = np.arccos(np.clip(np.dot(thrust_dir, vertical), -1.0, 1.0))
+        if actual_pitch_rad > C.MAX_PITCH_ANGLE:
+            # Clamp gamma to enforce max pitch constraint
+            gamma = min(gamma, C.MAX_PITCH_ANGLE)
+            cos_gamma = np.cos(gamma)
+            sin_gamma = np.sin(gamma)
+            thrust_dir = cos_gamma * vertical + sin_gamma * prograde
     
     # Normalize to unit vector
     thrust_norm = np.linalg.norm(thrust_dir)

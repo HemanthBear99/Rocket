@@ -230,6 +230,12 @@ CRASH_ALTITUDE_TOLERANCE = -1000.0  # Altitude below which we consider it a cras
 # PARAMETER SUMMARY (for logging)
 # =============================================================================
 
+# Control Limits [FIX #2, FIX #4] - Phase I Safety Constraints
+MAX_PITCH_ANGLE = np.radians(30.0)  # [FIX #2] Maximum pitch angle 30 degrees
+MAX_GIMBAL_RATE = np.radians(5.0)   # [FIX #4] Maximum gimbal rate 5 degrees/second
+
+# =============================================================================
+
 def print_config():
     """Print configuration summary."""
     print("="*60)
@@ -244,5 +250,7 @@ def print_config():
     print(f"Inertia Izz: {IZZ_FULL:.2e} kg·m²")
     print(f"Kp: {KP_ATTITUDE:.1e}, Kd: {KD_ATTITUDE:.1e}")
     print(f"Max torque: {MAX_TORQUE:.1e} N·m")
+    print(f"Max pitch angle: {np.degrees(MAX_PITCH_ANGLE):.1f} degrees")
+    print(f"Max gimbal rate: {np.degrees(MAX_GIMBAL_RATE):.1f} degrees/second")
     print("="*60)
 

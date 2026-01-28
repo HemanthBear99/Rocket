@@ -63,13 +63,19 @@ def compute_linear_acceleration(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     """
     Compute linear acceleration from Newton's second law.
     
-    r̈ = F_total / m
+    r̈ = (F_grav + F_thrust + F_drag + F_coriolis) / m
+    
+    Reference: ROCKET_SIMULATION_RULES.md Section 2.1
+    [PHASE I] [FIX #1] Includes Coriolis force for high-altitude accuracy
     """
+    from .forces import compute_coriolis_force
+    
     F_grav = compute_gravity_force(r, m)
     F_thrust = compute_thrust_force(q, r, thrust_on, throttle)
     F_drag = compute_drag_force(r, v)
+    F_coriolis = compute_coriolis_force(v, m)  # [FIX #1] Add Coriolis force
     
-    F_total = F_grav + F_thrust + F_drag
+    F_total = F_grav + F_thrust + F_drag + F_coriolis  # [FIX #1] Include all forces
     
     if m < C.ZERO_TOLERANCE:
         return np.zeros(3)

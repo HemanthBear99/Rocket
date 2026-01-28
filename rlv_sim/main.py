@@ -25,7 +25,7 @@ from .state import State, create_initial_state
 from .guidance import compute_guidance_output
 from .control import compute_control_torque, compute_control_output
 from .integrators import integrate
-from .validation import validate_state, ValidationError
+from .validation import validate_state, ValidationError, compute_total_energy, validate_energy_conservation
 from .mass import is_propellant_exhausted
 from .types import GuidanceOutput, ControlOutput
 from .frames import rotate_vector_by_quaternion
@@ -170,6 +170,9 @@ def run_simulation(dt: float = None, max_time: float = None,
     state = create_initial_state()
     log = SimulationLog()
     
+    # [FIX #3] Initialize energy tracking for conservation check
+    E_prev = compute_total_energy(state.r, state.v, state.m)
+    
     # Log startup info
     logger.info(f"Starting simulation: dt={dt}s, max_time={max_time}s")
     logger.debug(f"Initial state: {state}")
@@ -212,6 +215,16 @@ def run_simulation(dt: float = None, max_time: float = None,
         
         # Log data
         log.append(state, guidance, control)
+        
+        # [FIX #3] Check energy conservation every 100 steps (every 10 seconds)
+        if step_count % 100 == 0 and step_count > 0:
+            E_current = compute_total_energy(state.r, state.v, state.m)
+            energy_result = validate_energy_conservation(E_current, E_prev, dt * 100)
+            if not energy_result['valid']:
+                logger.warning(f"Energy drift at t={state.t:.1f}s: "
+                              f"relative_error={energy_result['relative_error']:.2e}, "
+                              f"dE={energy_result['dE']:.2e} J")
+            E_prev = E_current
         
         step_count += 1
         
