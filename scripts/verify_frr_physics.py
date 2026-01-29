@@ -8,9 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from rlv_sim import constants as C
-from rlv_sim.state import State, create_initial_state
 from rlv_sim.dynamics import compute_state_derivative
-from rlv_sim.forces import compute_total_force, compute_gravity_force, compute_drag_force
 from rlv_sim.frames import quaternion_to_rotation_matrix
 
 # Setup logging

@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 from rlv_sim.guidance import compute_gravity_turn_angle
-from rlv_sim.control import compute_control_output
 from rlv_sim.frames import direction_to_quaternion
 from rlv_sim import constants as C
 

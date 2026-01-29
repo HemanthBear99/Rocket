@@ -8,8 +8,6 @@ sys.path.insert(0, str(Path.cwd()))
 
 from rlv_sim.main import run_simulation
 from rlv_sim import constants as C
-from rlv_sim.frames import rotate_vector_by_quaternion
-from rlv_sim.guidance import compute_local_vertical
 
 def check():
     print("Running sim...")

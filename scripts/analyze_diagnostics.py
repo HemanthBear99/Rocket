@@ -1,5 +1,4 @@
 import csv
-import math
 import numpy as np
 
 FNAME = 'plots/diagnostics_full.csv'

@@ -12,7 +12,7 @@ This script runs the simulation and logs detailed data to verify:
 
 import numpy as np
 from rlv_sim import constants as C
-from rlv_sim.state import State, create_initial_state
+from rlv_sim.state import create_initial_state
 from rlv_sim.guidance import compute_guidance_output
 from rlv_sim.control import compute_control_output
 from rlv_sim.forces import compute_gravity_force, compute_thrust_force

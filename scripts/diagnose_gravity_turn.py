@@ -12,7 +12,7 @@ Checks:
 import numpy as np
 import matplotlib.pyplot as plt
 from rlv_sim.state import create_initial_state
-from rlv_sim.guidance import compute_guidance_output, compute_local_vertical
+from rlv_sim.guidance import compute_guidance_output
 from rlv_sim.control import compute_control_output
 from rlv_sim.integrators import integrate
 from rlv_sim.utils import compute_relative_velocity

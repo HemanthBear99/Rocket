@@ -9,7 +9,6 @@ from . import constants as C
 from .forces import compute_atmosphere_properties
 from .types import GuidanceOutput
 from .utils import compute_relative_velocity
-from .frames import quaternion_to_rotation_matrix
 
 
 def compute_local_vertical(r: np.ndarray) -> np.ndarray:

@@ -16,7 +16,6 @@ sys.path.insert(0, '/d/rocket/Rocket')
 import numpy as np
 from rlv_sim.main import run_simulation
 from rlv_sim.guidance import compute_gravity_turn_angle, compute_local_vertical
-from rlv_sim.frames import rotate_vector_by_quaternion
 import warnings
 warnings.filterwarnings('ignore')
 

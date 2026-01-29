@@ -7,7 +7,6 @@ simulation state variables. No duplicated state is allowed anywhere.
 
 from dataclasses import dataclass, field
 import numpy as np
-from typing import Optional
 
 from . import constants as C
 

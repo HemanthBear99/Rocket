@@ -18,18 +18,17 @@ import time
 import os
 import csv
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List
 
 import numpy as np
 
 from . import constants as C
 from .state import State, create_initial_state
 from .guidance import compute_guidance_output
-from .control import compute_control_torque, compute_control_output
+from .control import compute_control_output
 from .integrators import integrate
 from .validation import validate_state, ValidationError, compute_total_energy, validate_energy_conservation
 from .mass import is_propellant_exhausted
-from .types import GuidanceOutput, ControlOutput
 from .frames import rotate_vector_by_quaternion
 from .guidance import compute_local_vertical
 from .actuator import ActuatorState, update_actuator

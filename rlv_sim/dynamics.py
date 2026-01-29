@@ -14,7 +14,7 @@ import numpy as np
 
 from . import constants as C
 from .frames import quaternion_derivative, quaternion_normalize
-from .forces import compute_total_force, compute_aerodynamic_moment, compute_gravity_force, compute_drag_force, compute_thrust_force, compute_lift_force
+from .forces import compute_aerodynamic_moment, compute_gravity_force, compute_drag_force, compute_thrust_force, compute_lift_force
 from .mass import compute_mass_derivative, compute_inertia_tensor, compute_center_of_mass
 
 

@@ -6,9 +6,7 @@ allowing different simulation parameters to be passed without modifying
 global constants.
 """
 
-from dataclasses import dataclass, field
-from typing import Optional
-import numpy as np
+from dataclasses import dataclass
 
 from . import constants as C
 

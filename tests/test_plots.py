@@ -7,11 +7,10 @@ Tests that plots are created correctly and files are generated.
 import os
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 
-from rlv_sim.main import SimulationLog
 
 
 class MockLog:

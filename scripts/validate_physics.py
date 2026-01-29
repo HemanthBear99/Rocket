@@ -6,14 +6,13 @@ This script verifies EVERY physics checklist item with numerical evidence.
 
 import numpy as np
 from rlv_sim import constants as C
-from rlv_sim.state import State, create_initial_state
+from rlv_sim.state import create_initial_state
 from rlv_sim.guidance import compute_guidance_output, compute_blend_parameter
-from rlv_sim.control import compute_control_output, compute_control_torque
+from rlv_sim.control import compute_control_output
 from rlv_sim.dynamics import compute_angular_acceleration, compute_state_derivative
 from rlv_sim.forces import compute_gravity_force, compute_thrust_force, compute_total_force
 from rlv_sim.frames import quaternion_to_rotation_matrix, quaternion_derivative, quaternion_normalize
 from rlv_sim.integrators import rk4_step
-from rlv_sim.main import run_simulation
 
 def print_section(title):
     print(f"\n{'='*70}")
