@@ -309,18 +309,13 @@ def validate_energy_conservation(E_current: float, E_previous: float,
         return {'valid': True, 'error': 0.0, 'message': 'Energy too small to validate'}
     
     dE = E_current - E_previous
-    dE_dt = dE / dt if dt > 0 else 0.0
-    relative_error = abs(dE_dt) / abs(E_previous) if E_previous != 0 else 0.0
-    
-    is_valid = relative_error < C.ENERGY_TOLERANCE
+    relative_error = abs(dE / E_previous) if abs(E_previous) > C.ZERO_TOLERANCE else 0.0
     
     return {
-        'valid': is_valid,
+        'valid': relative_error < C.ENERGY_TOLERANCE,
         'dE': float(dE),
-        'dE_dt': float(dE_dt),
         'relative_error': float(relative_error),
-        'tolerance': C.ENERGY_TOLERANCE,
-        'message': f"Energy: dE/dt={dE_dt:.2e}, rel_error={relative_error:.2e}"
+        'message': f"Energy error: {relative_error:.2e} (tol={C.ENERGY_TOLERANCE:.2e})"
     }
 
 

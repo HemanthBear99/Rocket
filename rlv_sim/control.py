@@ -79,14 +79,38 @@ def saturate_torque(torque: np.ndarray) -> np.ndarray:
     return torque
 
 
+def limit_gimbal_rate(omega: np.ndarray) -> np.ndarray:
+    """
+    Apply gimbal rate limits to angular velocity.
+    
+    Constrains angular velocity components to MAX_GIMBAL_RATE to respect
+    physical engine gimbal actuator capabilities.
+    
+    Args:
+        omega: Current angular velocity in body frame (rad/s)
+        
+    Returns:
+        Rate-limited angular velocity in body frame (rad/s)
+    """
+    # Limit each component to MAX_GIMBAL_RATE
+    # For a rocket, typically limit pitch and roll, while yaw is less critical
+    omega_limited = np.array([
+        np.clip(omega[0], -C.MAX_GIMBAL_RATE, C.MAX_GIMBAL_RATE),  # Roll
+        np.clip(omega[1], -C.MAX_GIMBAL_RATE, C.MAX_GIMBAL_RATE),  # Pitch
+        np.clip(omega[2], -C.MAX_GIMBAL_RATE, C.MAX_GIMBAL_RATE)   # Yaw
+    ])
+    return omega_limited
+
+
 def pd_control_law(error_axis: np.ndarray, error_angle: float,
                    omega: np.ndarray) -> np.ndarray:
     """
-    Implement PD attitude control law.
+    Implement PD attitude control law with gimbal rate limiting.
     
-    τ = Kp * θ * axis - Kd * ω
+    τ = Kp * θ * axis - Kd * ω_limited
     
-    where θ is the error angle and axis is the rotation axis.
+    where θ is the error angle, axis is the rotation axis, and ω_limited
+    respects physical gimbal rate constraints.
     
     Args:
         error_axis: Unit axis of rotation error
@@ -96,17 +120,16 @@ def pd_control_law(error_axis: np.ndarray, error_angle: float,
     Returns:
         Control torque in body frame (N*m)
     """
-    # Proportional term: error vector = angle * axis
-    error_vector = error_angle * error_axis
-    tau_p = C.KP_ATTITUDE * error_vector
+    # Apply gimbal rate limits to angular velocity [FIX #4]
+    omega_limited = limit_gimbal_rate(omega)
     
-    # Derivative term: rate damping
-    tau_d = -C.KD_ATTITUDE * omega
+    # Proportional term (Kp * θ * axis)
+    tau_p = C.KP_ATTITUDE * (error_angle * error_axis)
     
-    # Combined control torque
-    tau = tau_p + tau_d
+    # Derivative term (-Kd * ω_limited)
+    tau_d = -C.KD_ATTITUDE * omega_limited
     
-    return saturate_torque(tau)
+    return saturate_torque(tau_p + tau_d)
 
 
 def compute_control_torque(q_current: np.ndarray, omega: np.ndarray,
@@ -131,13 +154,9 @@ def compute_control_torque(q_current: np.ndarray, omega: np.ndarray,
     # Step 1: Get commanded quaternion
     q_commanded = compute_commanded_quaternion(desired_direction)
     
-    # Step 2: Compute error
+    # Step 2: Compute error and apply PD control
     error_axis, error_angle = compute_attitude_error(q_current, q_commanded)
-    
-    # Step 3: Apply PD control
-    torque = pd_control_law(error_axis, error_angle, omega)
-    
-    return torque
+    return pd_control_law(error_axis, error_angle, omega)
 
 
 def compute_control_output(q_current: np.ndarray, omega: np.ndarray,

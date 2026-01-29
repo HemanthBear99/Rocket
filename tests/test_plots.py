@@ -25,19 +25,26 @@ class MockLog:
         self.velocity = list(np.linspace(465, 3000, n_points))  # m/s
         self.mass = list(np.linspace(540000, 200000, n_points))  # kg
         self.pitch_angle = list(np.linspace(0, 45, n_points))  # degrees
+        self.actual_pitch_angle = list(np.linspace(0, 40, n_points))  # degrees
         self.attitude_error = list(np.abs(np.sin(t/10)) * 0.5)  # degrees
         self.torque_magnitude = list(np.abs(np.sin(t/5)) * 1e6)  # N*m
+        self.gamma_command_deg = list(np.linspace(90, 10, n_points))
+        self.gamma_actual_deg = list(np.linspace(90, 15, n_points))
+        self.velocity_tilt_deg = list(np.linspace(0, 80, n_points))
         
         # Position in ECI (simple radial trajectory)
         r_start = 6.371e6
         self.position_x = list(np.linspace(r_start, r_start + 100e3, n_points))
         self.position_y = list(np.linspace(0, 50e3, n_points))
         self.position_z = list(np.linspace(0, 30e3, n_points))
+        # Downrange arc length (km)
+        self.downrange = list(np.linspace(0, 150, n_points))
         
         # Velocity components in ECI
         self.velocity_x = list(np.linspace(0, 100, n_points))  # m/s
         self.velocity_y = list(np.linspace(465, 600, n_points))  # m/s (Earth rotation)
         self.velocity_z = list(np.linspace(0, 2800, n_points))  # m/s (radial component)
+        self.velocity_rel = list(np.linspace(0, 2700, n_points))
         
         self.quaternion_norm = list(np.ones(n_points))
 

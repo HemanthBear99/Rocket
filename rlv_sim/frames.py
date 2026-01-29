@@ -95,22 +95,13 @@ def quaternion_to_rotation_matrix(q: np.ndarray) -> np.ndarray:
     Returns:
         3x3 rotation matrix
     """
-    # Ensure normalized
-    q = quaternion_normalize(q)
-    w, x, y, z = q
+    w, x, y, z = quaternion_normalize(q)
     
-    # Precompute products
-    xx = x * x
-    yy = y * y
-    zz = z * z
-    xy = x * y
-    xz = x * z
-    yz = y * z
-    wx = w * x
-    wy = w * y
-    wz = w * z
+    xx, yy, zz = x*x, y*y, z*z
+    xy, xz, yz = x*y, x*z, y*z
+    wx, wy, wz = w*x, w*y, w*z
     
-    R = np.array([
+    return np.array([
         [1 - 2*(yy + zz),     2*(xy - wz),     2*(xz + wy)],
         [    2*(xy + wz), 1 - 2*(xx + zz),     2*(yz - wx)],
         [    2*(xz - wy),     2*(yz + wx), 1 - 2*(xx + yy)]

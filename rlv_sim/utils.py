@@ -10,28 +10,29 @@ import numpy as np
 from . import constants as C
 
 
+def _wind_vector(r: np.ndarray) -> np.ndarray:
+    """Simple altitude-dependent wind in inertial frame (East/West)."""
+    alt = np.linalg.norm(r) - C.R_EARTH
+    if alt <= 0.0 or alt < 5000.0:
+        return np.zeros(3)
+    # power-law profile
+    speed = C.WIND_REF_SPEED * (alt / C.WIND_REF_ALT) ** C.WIND_EXPONENT
+    # Direction: azimuth from north clockwise; convert to ECI assuming launch site on equator x-axis
+    # East unit at site ~ +Y, North ~ +Z, Up ~ +X; but we approximate global: use ECI basis (X radial, Y east, Z north)
+    east = np.array([0.0, 1.0, 0.0])
+    north = np.array([0.0, 0.0, 1.0])
+    dir_vec = np.cos(C.WIND_DIRECTION_AZIMUTH) * north + np.sin(C.WIND_DIRECTION_AZIMUTH) * east
+    return speed * dir_vec
+
+
 def compute_relative_velocity(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     """
-    Compute air-relative velocity accounting for Earth rotation.
-    
-    The atmosphere co-rotates with Earth, so the air velocity at position r
-    is v_wind = omega_earth × r. The vehicle's velocity relative to the air
-    is v_rel = v - v_wind.
-    
-    Args:
-        r: Position vector in inertial (ECI) frame (m)
-        v: Velocity vector in inertial (ECI) frame (m/s)
-        
-    Returns:
-        Air-relative velocity vector (m/s)
-        
-    Note:
-        - Earth rotation axis is assumed to be the Z-axis (standard ECI frame)
-        - For equatorial launches, this accounts for the ~465 m/s rotational velocity
+    Compute air-relative velocity removing Earth rotation and winds.
+    v_rel = v_inertial - (omega_earth × r) - v_wind
     """
     omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
-    v_wind = np.cross(omega_earth, r)
-    return v - v_wind
+    wind = _wind_vector(r)
+    return v - np.cross(omega_earth, r) - wind
 
 
 def compute_relative_velocity_magnitude(r: np.ndarray, v: np.ndarray) -> float:

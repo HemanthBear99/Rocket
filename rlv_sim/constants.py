@@ -125,11 +125,11 @@ KD_ATTITUDE = 4.5e7  # Derivative gain (N·m·s/rad)
 MAX_TORQUE = 2.0e7
 
 # Pitchover Maneuver Parameters
-PITCHOVER_START_ALTITUDE = 100.0   # Altitude to start pitch kick (m)
+PITCHOVER_START_ALTITUDE = 0.0   # Start pitchover immediately at liftoff (m)
 PITCHOVER_END_ALTITUDE = 2000.0    # Altitude to end pitch kick (m)
 PITCHOVER_ANGLE = 2.0 * np.pi / 180.0  # 2 degrees kick
 PITCHOVER_AZIMUTH = 90.0 * np.pi / 180.0  # East (inertial +Y)
-PITCHOVER_RAMP_DISTANCE = 50.0  # Altitude range for smooth ramp-in (m)
+PITCHOVER_RAMP_DISTANCE = 100.0  # Altitude range for smooth ramp-in (m)
 
 # Target pitch angle at end of Phase I (rad from vertical)
 TARGET_PITCH_ANGLE = np.radians(45.0)
@@ -148,6 +148,10 @@ DT = 0.01
 
 # Maximum simulation time (s)
 MAX_TIME = 300.0
+
+# Target MECO criteria (Phase I)
+TARGET_ALTITUDE = 110000.0  # m
+TARGET_SPEED = 2500.0       # m/s
 
 # =============================================================================
 # INITIAL CONDITIONS (A.8)
@@ -208,6 +212,9 @@ R_GAS = 287.05   # Specific gas constant (J/(kg·K))
 MACH_BREAKPOINTS = np.array([0.0, 0.8, 1.05, 1.3, 2.0, 5.0, 10.0, 25.0])
 CD_VALUES = np.array([0.42, 0.42, 0.75, 0.65, 0.50, 0.35, 0.25, 0.20])
 
+# Lift slope vs Mach (per rad)
+CL_ALPHA_VALUES = np.array([2.0, 2.0, 1.8, 1.6, 1.2, 0.8, 0.6, 0.4])
+
 # Propulsion - Vacuum Isp
 ISP_VAC = 311.0  # Vacuum specific impulse (s)
 # ISP (Sea Level) is defined above as 282.0
@@ -226,13 +233,19 @@ SMALL_VELOCITY_TOL = 1e-5   # Small velocity threshold (m/s)
 DENSITY_FLOOR = 1e-12       # Minimum density before treating as vacuum (kg/m³)
 CRASH_ALTITUDE_TOLERANCE = -1000.0  # Altitude below which we consider it a crash (m)
 
+# Winds (simplified log/power profile)
+WIND_REF_ALT = 10000.0   # m
+WIND_REF_SPEED = 30.0    # m/s at 10 km
+WIND_EXPONENT = 0.2
+WIND_DIRECTION_AZIMUTH = np.radians(270.0)  # from West to East
+
 # =============================================================================
 # PARAMETER SUMMARY (for logging)
 # =============================================================================
 
 # Control Limits [FIX #2, FIX #4] - Phase I Safety Constraints
 MAX_PITCH_ANGLE = np.radians(30.0)  # [FIX #2] Maximum pitch angle 30 degrees
-MAX_GIMBAL_RATE = np.radians(5.0)   # [FIX #4] Maximum gimbal rate 5 degrees/second
+MAX_GIMBAL_RATE = np.radians(12.0)   # Maximum gimbal rate 12 deg/s for faster tracking
 
 # =============================================================================
 

@@ -14,7 +14,7 @@ import numpy as np
 
 from . import constants as C
 from .frames import quaternion_derivative, quaternion_normalize
-from .forces import compute_total_force, compute_aerodynamic_moment, compute_gravity_force, compute_drag_force, compute_thrust_force
+from .forces import compute_total_force, compute_aerodynamic_moment, compute_gravity_force, compute_drag_force, compute_thrust_force, compute_lift_force
 from .mass import compute_mass_derivative, compute_inertia_tensor, compute_center_of_mass
 
 
@@ -43,19 +43,11 @@ def compute_angular_acceleration(omega: np.ndarray, torque: np.ndarray,
     Returns:
         Angular acceleration in body frame (rad/s²)
     """
-    # I * omega
+    # Euler's equation: I * ω̇ + ω × (I * ω) = τ
+    # ω̇ = I⁻¹ (τ − ω × (I * ω))
     I_omega = I_tensor @ omega
-    
-    # omega × (I * omega)
     gyroscopic = np.cross(omega, I_omega)
-    
-    # τ - ω × (Iω)
-    net_torque = torque - gyroscopic
-    
-    # I⁻¹ * net_torque
-    omega_dot = I_inv @ net_torque
-    
-    return omega_dot
+    return I_inv @ (torque - gyroscopic)
 
 
 def compute_linear_acceleration(r: np.ndarray, v: np.ndarray, q: np.ndarray,
@@ -70,12 +62,14 @@ def compute_linear_acceleration(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     """
     from .forces import compute_coriolis_force
     
-    F_grav = compute_gravity_force(r, m)
-    F_thrust = compute_thrust_force(q, r, thrust_on, throttle)
-    F_drag = compute_drag_force(r, v)
-    F_coriolis = compute_coriolis_force(v, m)  # [FIX #1] Add Coriolis force
-    
-    F_total = F_grav + F_thrust + F_drag + F_coriolis  # [FIX #1] Include all forces
+    # Sum of all forces
+    F_total = (
+        compute_gravity_force(r, m) +
+        compute_thrust_force(q, r, thrust_on, throttle) +
+        compute_drag_force(r, v) +
+        compute_lift_force(r, v, q) +
+        compute_coriolis_force(v, m)
+    )
     
     if m < C.ZERO_TOLERANCE:
         return np.zeros(3)
@@ -94,48 +88,22 @@ def compute_state_derivative(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     - Aerodynamic Moments (Instability)
     - Throttling
     """
-    # Position derivative = velocity
-    r_dot = v
-    
-    # Velocity derivative = acceleration
-    v_dot = compute_linear_acceleration(r, v, q, m, thrust_on, throttle)
-    
-    # Quaternion derivative from kinematics
-    q_dot = quaternion_derivative(q, omega)
-    
-    # --- ROTATIONAL DYNAMICS UPGRADE ---
-    
     # 1. Update Inertia Properties
     I_tensor = compute_inertia_tensor(m)
-    # Optimized: For diagonal inertia tensors, inverse is trivial
     I_inv = np.diag(1.0 / np.diag(I_tensor))
     
     # 2. Compute Aerodynamic Instability Torque
-    # Need CG position for moment arm
     cg_pos_z = compute_center_of_mass(m)
     tau_aero = compute_aerodynamic_moment(r, v, q, cg_pos_z)
     
-    # 3. Total Torque = Control Torque + Aero Torque
-    total_torque = torque + tau_aero
+    # 3. Compute Accelerations
+    omega_dot = compute_angular_acceleration(omega, torque + tau_aero, I_tensor, I_inv)
+    r_dot = v
+    v_dot = compute_linear_acceleration(r, v, q, m, thrust_on, throttle)
+    q_dot = quaternion_derivative(q, omega)
+    m_dot = compute_mass_derivative(m, thrust_on, throttle)
     
-    # Angular velocity derivative
-    omega_dot = compute_angular_acceleration(omega, total_torque, I_tensor, I_inv)
-    
-    # Mass derivative
-    # Note: throttling also affects mass flow!
-    # m_dot = -mdot * throttle
-    # compute_mass_derivative currently assumes constant flow.
-    # Need to scale it by throttle.
-    m_dot_nominal = compute_mass_derivative(m, thrust_on)
-    m_dot = m_dot_nominal * throttle
-    
-    return StateDerivative(
-        r_dot=r_dot,
-        v_dot=v_dot,
-        q_dot=q_dot,
-        omega_dot=omega_dot,
-        m_dot=m_dot
-    )
+    return StateDerivative(r_dot, v_dot, q_dot, omega_dot, m_dot)
 
 
 def state_derivative_vector(state_vec: np.ndarray, t: float, 

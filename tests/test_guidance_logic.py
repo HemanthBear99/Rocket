@@ -27,24 +27,18 @@ class TestGuidanceLogic(unittest.TestCase):
         v = np.array([10.0, 465.0, 0]) # Low vertical velocity, ~Earth rotation tangential
         
         # Time doesn't matter for this function
-        thrust_dir = guidance.compute_desired_thrust_direction(r, v, 0.0)
+        thrust_dir, _, _ = guidance.compute_desired_thrust_direction(r, v, 0.0)
         
-        # Expected behavior:
-        # Vertical is [1, 0, 0]
-        # East is [0, 1, 0]
-        # Pitchover Angle is 2 degrees (0.0349 rad)
-        # Result should be tilted towards +Y
-        
-        # Check Y component is positive (Eastward kick)
+        # Should tilt eastward and NOT remain vertical
         self.assertTrue(thrust_dir[1] > 0.01, "Thrust vector should have positive Y component (East kick)")
         
-        # Check Angle
         vertical = np.array([1.0, 0.0, 0.0])
-        cos_theta = np.dot(thrust_dir, vertical)
-        angle_rad = np.arccos(cos_theta)
+        angle_rad = np.arccos(np.clip(np.dot(thrust_dir, vertical), -1.0, 1.0))
         
-        # Should be close to PITCHOVER_ANGLE
-        self.assertAlmostEqual(angle_rad, C.PITCHOVER_ANGLE, places=4, msg="Pitchover angle incorrect")
+        # With the new aggressive gravity-turn law the early tilt should be >5 deg
+        self.assertGreater(angle_rad, np.radians(5.0), "Thrust pitch should exceed 5 deg early in ascent")
+        # but still below 80 deg this early
+        self.assertLess(angle_rad, np.radians(80.0), "Thrust pitch should not be nearly horizontal at 500 m")
 
     def test_gravity_turn_prograde(self):
         """Verify Gravity Turn follows velocity"""
@@ -52,7 +46,7 @@ class TestGuidanceLogic(unittest.TestCase):
         r = np.array([C.R_EARTH + 50000.0, 0, 0]) 
         v = np.array([1000.0, 1000.0, 0.0]) # 45 degree flight path roughly
         
-        thrust_dir = guidance.compute_desired_thrust_direction(r, v, 0.0)
+        thrust_dir, _, _ = guidance.compute_desired_thrust_direction(r, v, 0.0)
         
         # In gravity turn, thrust should align with v_rel (roughly v here since v >> v_wind)
         # Let's just check it's not purely vertical

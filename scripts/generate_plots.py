@@ -8,6 +8,8 @@ import os
 import sys
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -45,12 +47,23 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     # Convert lists to arrays for easier manipulation
     time = np.array(log.time)
     altitude = np.array(log.altitude)  # already in km
+    downrange = np.array(getattr(log, 'downrange', np.zeros_like(altitude)))
     velocity = np.array(log.velocity)
+    velocity_rel = np.array(getattr(log, 'velocity_rel', []))
+    if velocity_rel.size == 0:
+        velocity_rel = None
     mass = np.array(log.mass)
-    pitch_angle = np.array(log.pitch_angle)
+    pitch_angle = np.array(log.pitch_angle)  # command (deg from vertical)
     attitude_error = np.array(log.attitude_error)
     torque = np.array(log.torque_magnitude)
-    actual_pitch = np.array(log.actual_pitch_angle)  # New logged field
+    actual_pitch = np.array(log.actual_pitch_angle)  # deg from vertical
+    gamma_cmd = np.array(getattr(log, 'gamma_command_deg', getattr(log, 'flight_path_angle_deg', [])))
+    if gamma_cmd.size == 0:
+        gamma_cmd = np.array(log.flight_path_angle_deg) if hasattr(log, 'flight_path_angle_deg') else np.zeros_like(time)
+    gamma_actual = np.array(getattr(log, 'gamma_actual_deg', gamma_cmd))
+    velocity_tilt = np.array(getattr(log, 'velocity_tilt_deg', []))
+    if velocity_tilt.size == 0:
+        velocity_tilt = None
     pos_x = np.array(log.position_x)
     pos_y = np.array(log.position_y)
     pos_z = np.array(log.position_z)
@@ -67,17 +80,21 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     
     # Compute derived quantities
     # 1. Relative Velocity (Airspeed)
-    # v_rel = v_inertial - (omega_earth x r)
-    omega_vec = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
-    
-    # Position and Velocity arrays
+    # If already logged, use it; otherwise compute from omega × r
     pos_array = np.column_stack((pos_x, pos_y, pos_z))
     vel_array = np.column_stack((vel_x, vel_y, vel_z))
-    
-    # Calculate Relative Velocity
-    cross_term = np.cross(omega_vec, pos_array) 
-    v_rel_array = vel_array - cross_term
-    v_rel_mag = np.linalg.norm(v_rel_array, axis=1)
+    if velocity_rel is not None and velocity_rel.size == len(time):
+        v_rel_mag = velocity_rel
+        # Best effort components if available
+        if hasattr(log, 'velocity_rel_x'):
+            v_rel_array = np.column_stack((log.velocity_rel_x, log.velocity_rel_y, log.velocity_rel_z))
+        else:
+            omega_vec = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
+            v_rel_array = vel_array - np.cross(omega_vec, pos_array)
+    else:
+        omega_vec = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
+        v_rel_array = vel_array - np.cross(omega_vec, pos_array)
+        v_rel_mag = np.linalg.norm(v_rel_array, axis=1)
     
     # 2. Flight Path Angle (Relative vs Inertial)
     
@@ -311,17 +328,17 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     fig, ax = plt.subplots()
     
     # Plot Relative (Primary physics metric)
-    ax.plot(time, gamma_rel, 'b-', linewidth=2.5, label='Relative $\gamma$ (vs Horizontal)')
+    ax.plot(time, gamma_rel, 'b-', linewidth=2.5, label=r'Relative $\gamma$ (vs Horizontal)')
     
     # Plot Inertial (Dashed)
-    ax.plot(time, gamma_in, 'r--', linewidth=1.5, alpha=0.7, label='Inertial $\gamma$')
+    ax.plot(time, gamma_in, 'r--', linewidth=1.5, alpha=0.7, label=r'Inertial $\gamma$')
     
     ax.axhline(y=90, color='gray', linestyle=':', alpha=0.5)
     ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
     
     ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Flight Path Angle $\gamma$ (degrees from Horizontal)')
-    ax.set_title('Flight Path Angle: Relative vs Inertial\n($\gamma$ = angle from local horizontal; 90° = vertical climb, 0° = level flight)', 
+    ax.set_ylabel(r'Flight Path Angle $\gamma$ (degrees from Horizontal)')
+    ax.set_title(r'Flight Path Angle: Relative vs Inertial\n($\gamma$ = angle from local horizontal; 90° = vertical climb, 0° = level flight)', 
                  fontweight='bold', style='italic')
     ax.legend(loc='center right')
     ax.set_ylim(-5, 100)
@@ -329,10 +346,10 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     
     # Physics explanation box
     textstr = ('Physics Definition:\n'
-               '• $\gamma$ = angle from LOCAL HORIZONTAL\n'
-               '• 90° = vertical climb (straight up)\n'
-               '• 0° = horizontal flight (level)\n'
-               '• Gravity turn: $\gamma$ decreases toward 0°')
+               r'• $\gamma$ = angle from LOCAL HORIZONTAL\n'
+               r'• 90° = vertical climb (straight up)\n'
+               r'• 0° = horizontal flight (level)\n'
+               r'• Gravity turn: $\gamma$ decreases toward 0°')
     props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.9)
     ax.text(0.02, 0.35, textstr, transform=ax.transAxes, fontsize=9,
             verticalalignment='top', bbox=props)
@@ -439,8 +456,8 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     # Verify consistency of gamma calculation
     gamma_check_deg = np.degrees(np.arctan2(v_vertical, v_horizontal))
     
-    ax3.plot(time, gamma_rel, 'b-', linewidth=4, alpha=0.3, label='Logged Relative $\gamma$')
-    ax3.plot(time, gamma_check_deg, 'k--', linewidth=1.5, label='Computed $\gamma = atan2(v_z, v_h)$')
+    ax3.plot(time, gamma_rel, 'b-', linewidth=4, alpha=0.3, label=r'Logged Relative $\gamma$')
+    ax3.plot(time, gamma_check_deg, 'k--', linewidth=1.5, label=r'Computed $\gamma = atan2(v_z, v_h)$')
     ax3.axhline(90, color='gray', linestyle=':')
     ax3.set_ylabel('Flight Path Angle (deg)')
     ax3.set_xlabel('Time (s)')
@@ -535,12 +552,18 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     axes[1,0].set_ylabel('Pitch (deg)')
     axes[1,0].set_title('Pitch Command')
     
-    # Flight Path Angle
-    axes[1,1].fill_between(time, 0, gamma_rel, alpha=0.3, color='blue')
-    axes[1,1].plot(time, gamma_rel, 'b-', linewidth=2)
+    # Flight Path Angle (command vs actual vs relative)
+    n = len(time)
+    gamma_cmd = gamma_cmd[:n]
+    gamma_actual = gamma_actual[:n]
+    gamma_rel = gamma_rel[:n]
+    axes[1,1].plot(time, gamma_cmd, 'b-', linewidth=2, label='γ cmd (from horiz)')
+    axes[1,1].plot(time, gamma_actual, 'g--', linewidth=2, label='γ actual (from horiz)')
+    axes[1,1].plot(time, gamma_rel, color='gray', linestyle=':', linewidth=1.5, label='γ rel (computed)')
     axes[1,1].set_xlabel('Time (s)')
-    axes[1,1].set_ylabel('γ (deg)')
+    axes[1,1].set_ylabel('γ (deg from horizontal)')
     axes[1,1].set_title('Flight Path Angle')
+    axes[1,1].legend(loc='upper right')
     
     plt.tight_layout()
     path = os.path.join(output_dir, 'control_dynamics.png')
@@ -549,6 +572,29 @@ def generate_all_plots(log, final_state, output_dir: str = "plots"):
     plt.close(fig)
     
     # =========================================================================
+    # Angles Consistency Diagnostic
+    fig, ax = plt.subplots(figsize=(12, 7))
+    pitch_cmd = pitch_angle
+    pitch_act = actual_pitch
+    tilt_vertical = theta_rel_from_vertical
+    gamma_cmd_from_vertical = 90.0 - gamma_cmd
+    gamma_act_from_vertical = 90.0 - gamma_actual
+    ax.plot(time, pitch_cmd, 'b-', linewidth=2, label='Pitch cmd (from vertical)')
+    ax.plot(time, pitch_act, 'c--', linewidth=1.8, label='Pitch actual (body vs vertical)')
+    ax.plot(time, tilt_vertical, 'r-.', linewidth=1.8, label='Velocity tilt (from vertical)')
+    ax.plot(time, gamma_cmd_from_vertical, 'g:', linewidth=2, label='γ cmd (converted to from vertical)')
+    ax.plot(time, gamma_act_from_vertical, 'k-', linewidth=1.2, label='γ actual (converted)')
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Angle (deg)')
+    ax.set_title('Pitch / Flight-Path Angle Consistency')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='upper right')
+    plt.tight_layout()
+    path = os.path.join(output_dir, 'angles_consistency.png')
+    fig.savefig(path, bbox_inches='tight')
+    saved_files.append(path)
+    plt.close(fig)
+    
     # Trajectory Overview
     # =========================================================================
     fig, ax = plt.subplots(figsize=(12, 8))
@@ -580,7 +626,7 @@ def main():
     output_dir = "plots"
     saved = generate_all_plots(log, final_state, output_dir)
     
-    print(f"\n✅ Generated {len(saved)} plots in '{output_dir}/':")
+    print(f"\nGenerated {len(saved)} plots in '{output_dir}/':")
     for path in saved:
         print(f"   - {os.path.basename(path)}")
 

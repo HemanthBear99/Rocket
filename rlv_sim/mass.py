@@ -9,7 +9,7 @@ import numpy as np
 from . import constants as C
 
 
-def compute_mass_flow_rate(thrust_on: bool = True) -> float:
+def compute_mass_flow_rate(thrust_on: bool = True, throttle: float = 1.0) -> float:
     """
     Compute the mass flow rate.
     
@@ -23,13 +23,13 @@ def compute_mass_flow_rate(thrust_on: bool = True) -> float:
     Returns:
         Mass flow rate (kg/s), negative for mass decrease
     """
-    if not thrust_on:
+    if not thrust_on or throttle <= 0.0:
         return 0.0
     
-    return -C.MASS_FLOW_RATE
+    return -C.MASS_FLOW_RATE * float(np.clip(throttle, 0.0, 1.0))
 
 
-def compute_mass_derivative(m: float, thrust_on: bool = True) -> float:
+def compute_mass_derivative(m: float, thrust_on: bool = True, throttle: float = 1.0) -> float:
     """
     Compute the time derivative of mass.
     
@@ -43,13 +43,13 @@ def compute_mass_derivative(m: float, thrust_on: bool = True) -> float:
     # Check if propellant is exhausted
     propellant_remaining = m - C.DRY_MASS
     
-    if propellant_remaining <= 0 or not thrust_on:
+    if propellant_remaining <= 0 or not thrust_on or throttle <= 0.0:
         return 0.0
     
-    return -C.MASS_FLOW_RATE
+    return -C.MASS_FLOW_RATE * float(np.clip(throttle, 0.0, 1.0))
 
 
-def update_mass(m: float, dt: float, thrust_on: bool = True) -> float:
+def update_mass(m: float, dt: float, thrust_on: bool = True, throttle: float = 1.0) -> float:
     """
     Update mass for a single time step.
     
@@ -64,7 +64,7 @@ def update_mass(m: float, dt: float, thrust_on: bool = True) -> float:
     Returns:
         Updated mass (kg)
     """
-    dm_dt = compute_mass_derivative(m, thrust_on)
+    dm_dt = compute_mass_derivative(m, thrust_on, throttle)
     new_mass = m + dm_dt * dt
     
     # Ensure mass doesn't go below dry mass
@@ -111,9 +111,7 @@ def compute_center_of_mass(m: float) -> float:
         Height of CG from base (m)
     """
     frac = get_propellant_fraction(m)
-    # Lerp: Full -> Empty as frac: 1.0 -> 0.0
-    h_cg = C.H_CG_EMPTY + frac * (C.H_CG_FULL - C.H_CG_EMPTY)
-    return h_cg
+    return C.H_CG_EMPTY + frac * (C.H_CG_FULL - C.H_CG_EMPTY)
 
 
 def compute_inertia_tensor(m: float) -> np.ndarray:
@@ -129,7 +127,5 @@ def compute_inertia_tensor(m: float) -> np.ndarray:
         3x3 Inertia Tensor (kg*m^2)
     """
     frac = get_propellant_fraction(m)
-    # Lerp: Full -> Empty as frac: 1.0 -> 0.0
-    I_tensor = C.INERTIA_TENSOR_EMPTY + frac * (C.INERTIA_TENSOR_FULL - C.INERTIA_TENSOR_EMPTY)
-    return I_tensor
+    return C.INERTIA_TENSOR_EMPTY + frac * (C.INERTIA_TENSOR_FULL - C.INERTIA_TENSOR_EMPTY)
 

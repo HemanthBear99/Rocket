@@ -49,20 +49,17 @@ def rk4_step(state: State, torque: np.ndarray, dt: float,
     t = state.t
     y = state.to_vector()
     
-    # k1 = f(t, y)
+    # RK4 Integration Steps
     k1 = state_derivative_vector(y, t, torque, thrust_on, throttle)
     
-    # k2 = f(t + dt/2, y + dt/2 * k1)
     y2 = y + 0.5 * dt * k1
-    y2[6:10] = quaternion_normalize(y2[6:10])  # Normalize quaternion
+    y2[6:10] = quaternion_normalize(y2[6:10])
     k2 = state_derivative_vector(y2, t + 0.5*dt, torque, thrust_on, throttle)
     
-    # k3 = f(t + dt/2, y + dt/2 * k2)
     y3 = y + 0.5 * dt * k2
     y3[6:10] = quaternion_normalize(y3[6:10])
     k3 = state_derivative_vector(y3, t + 0.5*dt, torque, thrust_on, throttle)
     
-    # k4 = f(t + dt, y + dt * k3)
     y4 = y + dt * k3
     y4[6:10] = quaternion_normalize(y4[6:10])
     k4 = state_derivative_vector(y4, t + dt, torque, thrust_on, throttle)

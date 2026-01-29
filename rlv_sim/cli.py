@@ -54,9 +54,7 @@ def main():
     if args.quiet:
         logger.setLevel(logging.WARNING)
     
-    print("\n" + "="*70)
-    print("RLV PHASE-I: MASTER SIMULATION RUN")
-    print("="*70 + "\n")
+    print(f"\n{'='*70}\nRLV PHASE-I: MASTER SIMULATION RUN\n{'='*70}\n")
     
     try:
         # 1. Run Simulation

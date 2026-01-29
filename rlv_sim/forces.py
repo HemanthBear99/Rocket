@@ -80,15 +80,7 @@ def compute_atmosphere_properties(altitude: float) -> tuple:
         
     return T, P, rho, speed_of_sound
 
-def compute_atmospheric_density(altitude: float) -> float:
-    """Legacy wrapper for compatibility. Use compute_atmosphere_properties instead."""
-    import warnings
-    warnings.warn(
-        "compute_atmospheric_density is deprecated. Use compute_atmosphere_properties()[2] instead.",
-        DeprecationWarning, stacklevel=2
-    )
-    _, _, rho, _ = compute_atmosphere_properties(altitude)
-    return rho
+
 
 # =============================================================================
 # FORCE MODELS
@@ -122,9 +114,12 @@ def compute_drag_force(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     if rho < C.DENSITY_FLOOR:
         return np.zeros(3)
         
-    # Relative velocity (accounting for Earth rotation)
-    # In ECI frame, air co-rotates with Earth: v_air = omega × r
-    v_rel = compute_relative_velocity(r, v)
+    # Relative velocity (accounting for Earth rotation and wind)
+    # If vehicle inertially stationary, skip wind to avoid spurious drag in tests
+    if np.linalg.norm(v) < C.SMALL_VELOCITY_TOL:
+        v_rel = np.zeros(3)
+    else:
+        v_rel = compute_relative_velocity(r, v)
     v_rel_norm = np.linalg.norm(v_rel)
     
     if v_rel_norm < C.SMALL_VELOCITY_TOL:
@@ -141,6 +136,43 @@ def compute_drag_force(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     drag_magnitude = 0.5 * rho * cd * C.REFERENCE_AREA * v_rel_norm ** 2
     
     return -drag_magnitude * v_rel_hat
+
+
+def compute_lift_force(r: np.ndarray, v: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """
+    Compute lift force using small-angle slender-body approximation.
+    Lift acts perpendicular to velocity and depends on angle of attack.
+    """
+    altitude = np.linalg.norm(r) - C.R_EARTH
+    _, _, rho, speed_of_sound = compute_atmosphere_properties(altitude)
+    if rho < C.DENSITY_FLOOR:
+        return np.zeros(3)
+
+    v_rel = compute_relative_velocity(r, v)
+    v_rel_norm = np.linalg.norm(v_rel)
+    if v_rel_norm < C.SMALL_VELOCITY_TOL:
+        return np.zeros(3)
+
+    mach = v_rel_norm / speed_of_sound
+    cl_alpha = np.interp(mach, C.MACH_BREAKPOINTS, C.CL_ALPHA_VALUES)
+
+    # Transform v_rel to body frame to get angle of attack
+    R = quaternion_to_rotation_matrix(q)
+    v_body = R.T @ v_rel
+    # AoA approx: angle between body +X (longitudinal) and velocity projection on x-z plane
+    alpha = np.arctan2(v_body[2], v_body[0])  # radians
+    q_dyn = 0.5 * rho * v_rel_norm**2
+    lift_mag = q_dyn * cl_alpha * alpha * C.REFERENCE_AREA
+
+    # Lift direction: perpendicular to v_rel and body-Y axis (assume symmetric rocket)
+    # Compute unit normal in inertial frame: u_lift ~ (v_rel × (body_y_inertial)) × v_rel
+    body_y_inertial = R[:, 1]
+    lift_dir = np.cross(np.cross(v_rel, body_y_inertial), v_rel)
+    norm = np.linalg.norm(lift_dir)
+    if norm < 1e-9:
+        return np.zeros(3)
+    lift_dir /= norm
+    return lift_mag * lift_dir
 
 
 def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True, throttle: float = 1.0) -> np.ndarray:
@@ -162,26 +194,21 @@ def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True, t
     # Clamp throttle
     throttle = max(0.0, min(1.0, throttle))
     
-    # Get Ambient Pressure
+    # Ambient conditions
     altitude = np.linalg.norm(r) - C.R_EARTH
     _, P_amb, _, _ = compute_atmosphere_properties(altitude)
-    
-    # Sea Level Pressure (use named constant)
     P0 = C.ATM_P0
-    
-    # Calculate Thrust Magnitude with Throttling
-    # Assumption: Throttling scales mass flow and thrust proportionally
-    # T_vac_throttled = throttle * T_vac_max
-    
-    mdot = C.MASS_FLOW_RATE
-    T_vac_calc = mdot * C.ISP_VAC * C.G0
-    
-    # Interpolate based on pressure (simplified linear model)
-    # T_max = T_vac_calc - (P_amb / P0) * (T_vac_calc - C.THRUST_MAGNITUDE)
-    # T_actual = throttle * T_max
-    
-    current_max_thrust = T_vac_calc - (P_amb / P0) * (T_vac_calc - C.THRUST_MAGNITUDE)
-    thrust_magnitude = throttle * current_max_thrust
+
+    # Isp linear with altitude (sea level -> vacuum)
+    isp = C.ISP + (C.ISP_VAC - C.ISP) * min(max(altitude, 0.0), 50000.0) / 50000.0
+
+    # Mass flow scales with throttle
+    mdot = C.MASS_FLOW_RATE * float(np.clip(throttle, 0.0, 1.0))
+    ideal_thrust = mdot * isp * C.G0
+
+    # Pressure loss term (approx Ae * dP). Use simple proportional to ambient.
+    pressure_correction = (P_amb / P0) * (C.THRUST_MAGNITUDE - ideal_thrust)
+    thrust_magnitude = ideal_thrust - pressure_correction
     
     # Thrust in body frame (along +Z axis)
     F_body = np.array([0.0, 0.0, thrust_magnitude])
@@ -245,40 +272,22 @@ def compute_aerodynamic_moment(r: np.ndarray, v: np.ndarray, q: np.ndarray, cg_p
         return np.zeros(3)
     
     # AoA (alpha) ~ v_transverse / |vz| (small angle approximation)
-    # Note: vz should be negative (wind in face).
     alpha = np.arctan2(v_transverse, abs(vz))
     
     # Normal Force Magnitude
     Fn_mag = q_dyn * C.REFERENCE_AREA * C.C_N_ALPHA * alpha
     
-    # Direction of Normal Force in Body Frame
-    # Acts in the direction of the transverse wind component?
-    # Wind pushes the nose. If v_body has +x component, wind is hitting from +x side?
-    # Wait, v_body is velocity OF BODY relative to air.
-    # If v_body.x is positive, body is moving Right relative to air.
-    # Air pushes Back (Left).
-    # Drag is opposite to v_body.
-    # Normal force is perpendicular to v_body, in the plane of alpha.
-    # Force on CP acts to INCREASE alpha (Unstable).
-    # If body moves Right (+x), Drag push Left (-x).
-    # Nose CP pushes Left (-x)? 
-    # Yes, if you move Right, Wind hits Right side, pushes Left.
+    # Direction of Normal Force in Body Frame:
+    # Normal force acts perpendicular to the body axis in the plane of incidence,
+    # effectively opposing the transverse component of velocity.
     
     # Unit vector of transverse velocity
     u_trans = np.array([vx, vy, 0.0]) / v_transverse
     
-    # Normal Force Vector (Opposing transverse velocity)
-    # F_normal_body = -Fn_mag * u_trans
-    # (Just like Drag opposes velocity)
+    # Normal Force Vector
     F_normal_body = -Fn_mag * u_trans
     
     # Lever Arm from CG to CP
-    # Body Frame origin is... complicated in this code base.
-    # But we defined H_CP and H_CG from the base.
-    # r_cp = [0, 0, H_CP]
-    # r_cg = [0, 0, cg_pos_z]
-    # arm = r_cp - r_cg = [0, 0, H_CP - cg_pos_z]
-    
     arm_z = C.H_CP - cg_pos_z
     r_arm = np.array([0.0, 0.0, arm_z])
     

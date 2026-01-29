@@ -49,10 +49,8 @@ class State:
     
     def __post_init__(self):
         """Ensure arrays are numpy arrays with correct dtype."""
-        self.r = np.asarray(self.r, dtype=np.float64)
-        self.v = np.asarray(self.v, dtype=np.float64)
-        self.q = np.asarray(self.q, dtype=np.float64)
-        self.omega = np.asarray(self.omega, dtype=np.float64)
+        for attr in ['r', 'v', 'q', 'omega']:
+            setattr(self, attr, np.asarray(getattr(self, attr), dtype=np.float64))
     
     def copy(self) -> 'State':
         """Create a deep copy of the state."""
@@ -66,18 +64,9 @@ class State:
         )
     
     def to_vector(self) -> np.ndarray:
-        """
-        Convert state to a flat numpy array for integration.
-        
-        Order: [r(3), v(3), q(4), omega(3), m(1)] = 14 elements
-        Time is NOT included as it's handled separately.
-        """
+        """Convert state to a flat numpy array check [r, v, q, omega, m]."""
         return np.concatenate([
-            self.r,      # 0:3
-            self.v,      # 3:6
-            self.q,      # 6:10
-            self.omega,  # 10:13
-            [self.m]     # 13:14
+            self.r, self.v, self.q, self.omega, [self.m]
         ])
     
     @classmethod
