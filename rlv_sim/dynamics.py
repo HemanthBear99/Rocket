@@ -58,17 +58,14 @@ def compute_linear_acceleration(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     r̈ = (F_grav + F_thrust + F_drag + F_coriolis) / m
     
     Reference: ROCKET_SIMULATION_RULES.md Section 2.1
-    [PHASE I] [FIX #1] Includes Coriolis force for high-altitude accuracy
     """
-    from .forces import compute_coriolis_force
-    
-    # Sum of all forces
+    # Sum of all forces (no Coriolis in inertial frame)
+    # Note: No Coriolis force in inertial frame - that's only for rotating frames
     F_total = (
         compute_gravity_force(r, m) +
         compute_thrust_force(q, r, thrust_on, throttle) +
         compute_drag_force(r, v) +
-        compute_lift_force(r, v, q) +
-        compute_coriolis_force(v, m)
+        compute_lift_force(r, v, q)
     )
     
     if m < C.ZERO_TOLERANCE:
@@ -90,7 +87,12 @@ def compute_state_derivative(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     """
     # 1. Update Inertia Properties
     I_tensor = compute_inertia_tensor(m)
-    I_inv = np.diag(1.0 / np.diag(I_tensor))
+    # Use proper matrix inverse (handles both diagonal and full tensors)
+    try:
+        I_inv = np.linalg.inv(I_tensor)
+    except np.linalg.LinAlgError:
+        # Fallback to diagonal inverse if matrix is singular
+        I_inv = np.diag(1.0 / np.diag(I_tensor))
     
     # 2. Compute Aerodynamic Instability Torque
     cg_pos_z = compute_center_of_mass(m)

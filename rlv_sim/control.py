@@ -16,7 +16,8 @@ from .frames import (
     direction_to_quaternion,
     quaternion_error,
     quaternion_to_axis_angle,
-    quaternion_normalize
+    quaternion_normalize,
+    quaternion_inverse
 )
 
 
@@ -32,8 +33,8 @@ def compute_commanded_quaternion(desired_direction: np.ndarray) -> np.ndarray:
     Returns:
         Commanded quaternion [w, x, y, z]
     """
-    # Body +Z must point along desired direction
-    # direction_to_quaternion rotates BODY_Z to the target direction
+    # Body +Z must point along desired direction  
+    # Need quaternion that rotates body frame so +Z aligns with inertial target
     return direction_to_quaternion(desired_direction, C.BODY_Z_AXIS)
 
 

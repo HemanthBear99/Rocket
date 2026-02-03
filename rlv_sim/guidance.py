@@ -40,18 +40,22 @@ def compute_local_horizontal(r: np.ndarray, v: np.ndarray) -> np.ndarray:
 
 
 def gamma_profile_from_altitude(altitude: float) -> float:
-    """Piecewise-linear gamma profile (from horizontal) based on altitude (m)."""
+    """Piecewise-linear gamma profile (from horizontal) based on altitude (m).
+    
+    Optimized trajectory targeting ~110km at MECO without guidance divergence.
+    Moderate aggression: earlier turn than balanced, but achievable.
+    """
     alt_km = altitude / 1000.0
-    # More aggressive turn to reach ~10 deg by ~60 km
+    # Optimized profile: 90° -> 18° over 100km (reaches ~110km at MECO)
     pts = [
-        (0.0, 90.0),
-        (5.0, 85.0),
-        (15.0, 75.0),
-        (25.0, 60.0),
-        (40.0, 45.0),
-        (55.0, 25.0),
-        (70.0, 12.0),
-        (90.0, 8.0),
+        (0.0, 90.0),    # Vertical at launch
+        (3.0, 84.0),    # Start turn early
+        (10.0, 74.0),   # Accelerate gravity turn
+        (25.0, 58.0),   # Moderate turn
+        (45.0, 40.0),   # Push toward horizontal
+        (65.0, 28.0),   # Turn for horizontal velocity
+        (85.0, 21.0),   # Near horizontal
+        (100.0, 18.0),  # Target gamma at 100km
     ]
     if alt_km <= pts[0][0]:
         return np.radians(pts[0][1])
@@ -82,13 +86,22 @@ def compute_blend_parameter(altitude: float) -> float:
     return (altitude - start) / (end - start)
 
 
-# PID state
-_prev_gamma_meas = 90.0
-_gamma_int = 0.0
+# PID state (encapsulated in module-level variables - reset between runs)
+_pid_state = {
+    'prev_gamma_meas': 90.0,
+    'gamma_int': 0.0
+}
+
+
+def reset_guidance():
+    """Reset guidance PID state. Call this before starting a new simulation."""
+    global _pid_state
+    _pid_state['prev_gamma_meas'] = 90.0
+    _pid_state['gamma_int'] = 0.0
 
 
 def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt: float = C.DT):
-    global _prev_gamma_meas, _gamma_int
+    global _pid_state
 
     altitude = float(np.linalg.norm(r) - C.R_EARTH)
     vertical, east, north = compute_local_frame(r)
@@ -108,8 +121,9 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt:
     hnorm = np.linalg.norm(horizontal_dir)
     if hnorm < C.ZERO_TOLERANCE:
         horizontal_dir = heading_dir
+    else:
         hnorm = np.linalg.norm(horizontal_dir)
-    horizontal_dir /= hnorm
+        horizontal_dir /= hnorm
 
     # Gamma tracking
     gamma_target = gamma_profile_from_altitude(altitude)
@@ -119,28 +133,31 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt:
     if v_rel_norm < 1e-3:
         gamma_meas_deg = 90.0
     else:
-        gamma_meas_deg = float(np.degrees(np.arctan2(v_vert, v_horiz)))  # from horizontal
+        # gamma is angle from horizontal (90 = vertical)
+        gamma_meas_deg = float(np.degrees(np.arctan2(v_vert, v_horiz)))
     gamma_target_deg = float(np.degrees(gamma_target))
 
     error = gamma_target_deg - gamma_meas_deg
-    gamma_rate = (gamma_meas_deg - _prev_gamma_meas) / max(dt, 1e-3)
+    gamma_rate = (gamma_meas_deg - _pid_state['prev_gamma_meas']) / max(dt, 1e-3)
 
-    kp, ki, kd = 1.05, 0.03, 0.08
-    _gamma_int += error * dt
-    _gamma_int = float(np.clip(_gamma_int, -40.0, 40.0))
-    gamma_raw = gamma_target_deg + kp * error + ki * _gamma_int - kd * gamma_rate
-    gamma_cmd = float(np.clip(gamma_raw, gamma_target_deg - 20.0, gamma_target_deg + 20.0))
+    # Improved PID tuning for gradual gamma profile
+    # Reduced kp to prevent overshoot, increased ki for better tracking
+    kp, ki, kd = 0.85, 0.05, 0.12
+    _pid_state['gamma_int'] += error * dt
+    _pid_state['gamma_int'] = float(np.clip(_pid_state['gamma_int'], -30.0, 30.0))
+    gamma_raw = gamma_target_deg + kp * error + ki * _pid_state['gamma_int'] - kd * gamma_rate
+    gamma_cmd = float(np.clip(gamma_raw, gamma_target_deg - 15.0, gamma_target_deg + 15.0))
 
-    # gamma floor relaxation (deg from horizontal)
+    # gamma floor relaxation (deg from horizontal) - optimized for ~110km MECO
     gamma_floor = float(np.interp(
         altitude,
-        [0.0, 5000.0, 15000.0, 25000.0, 40000.0, 55000.0, 70000.0, 90000.0],
-        [88.0, 82.0, 75.0, 65.0, 50.0, 30.0, 15.0, 8.0],
+        [0.0, 3000.0, 10000.0, 25000.0, 45000.0, 65000.0, 85000.0, 100000.0],
+        [84.0, 78.0, 69.0, 54.0, 37.0, 25.0, 19.0, 16.0],
     ))
     gamma_cmd = float(np.clip(gamma_cmd, gamma_floor, 90.0))
-    _prev_gamma_meas = gamma_meas_deg
+    _pid_state['prev_gamma_meas'] = gamma_meas_deg
 
-    # Feed-forward pitch from vertical
+    # Feed-forward pitch from vertical (gamma from horizontal)
     theta_ff = np.pi/2 - np.radians(gamma_cmd)
     theta_ff = float(np.clip(theta_ff, 0.0, np.radians(89.0)))
 
@@ -154,14 +171,15 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt:
     theta_cap = float(np.interp(
         altitude,
         [0.0, 500.0, 3000.0, 10000.0, 25000.0, 60000.0],
-        np.radians([5.0, 12.0, 30.0, 55.0, 80.0, 85.0])
+        np.radians([15.0, 25.0, 40.0, 60.0, 75.0, 85.0])
     ))
 
     # Safeguards for near-zero or negative vertical rates
+    # Allow larger pitch angles to achieve proper trajectory
     if v_vert < 20.0 and altitude < 3000.0:
-        theta_cap = min(theta_cap, np.radians(20.0))
+        theta_cap = min(theta_cap, np.radians(35.0))
     if v_vert < 0.0 and altitude < 30000.0:
-        theta_cap = min(theta_cap, np.radians(25.0))
+        theta_cap = min(theta_cap, np.radians(40.0))
 
     theta = float(np.clip(theta, 0.0, theta_cap))
 

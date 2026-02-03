@@ -43,6 +43,7 @@ class SimulationLog:
     time: List[float] = field(default_factory=list)
     altitude: List[float] = field(default_factory=list)
     downrange: List[float] = field(default_factory=list)
+    downrange_ground: List[float] = field(default_factory=list)  # Ground track distance
     velocity: List[float] = field(default_factory=list)
     velocity_rel: List[float] = field(default_factory=list)
     velocity_horizontal: List[float] = field(default_factory=list)
@@ -123,6 +124,27 @@ class SimulationLog:
         downrange = C.R_EARTH * central_angle
         self.downrange.append(downrange / 1000)  # km
 
+        # Ground Track Downrange (accounting for Earth rotation)
+        # Rotate ECI position (state.r) to ECEF by angle -omega*t
+        theta = C.EARTH_ROTATION_RATE * state.t
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        x_ecef = state.r[0] * cos_t + state.r[1] * sin_t
+        y_ecef = -state.r[0] * sin_t + state.r[1] * cos_t
+        z_ecef = state.r[2]
+        r_ecef = np.array([x_ecef, y_ecef, z_ecef])
+        
+        # Angle from initial position (assumed at R_EARTH, 0, 0 in ECEF)
+        r_ecef_norm = np.linalg.norm(r_ecef)
+        if r_ecef_norm > C.ZERO_TOLERANCE:
+             r_ecef_hat = r_ecef / r_ecef_norm
+             # r0_ecef is [1, 0, 0] since launch site rotates with Earth
+             central_angle_ground = np.arccos(np.clip(r_ecef_hat[0], -1.0, 1.0))
+             downrange_ground = C.R_EARTH * central_angle_ground
+             self.downrange_ground.append(downrange_ground / 1000.0)
+        else:
+             self.downrange_ground.append(0.0)
+
         # Compute and log actual pitch angle (Body Z vs Local Vertical)
         body_z_inertial = rotate_vector_by_quaternion(C.BODY_Z_AXIS, state.q)
         cos_pitch = np.clip(np.dot(vertical, body_z_inertial), -1.0, 1.0)
@@ -139,12 +161,12 @@ class SimulationLog:
         self.velocity_tilt_deg.append(tilt)
 
         # Diagnostics: commanded thrust direction (unit), commanded quaternion, actual quaternion
-        thrust_dir = guidance.get('thrust_direction', np.array([0.0, 0.0, 1.0]))
+        cmd_thrust_dir = guidance.get('thrust_direction', np.array([0.0, 0.0, 1.0]))
         cmd_quat = control.get('q_commanded', np.array([1.0, 0.0, 0.0, 0.0]))
 
-        self.commanded_thrust_x.append(float(thrust_dir[0]))
-        self.commanded_thrust_y.append(float(thrust_dir[1]))
-        self.commanded_thrust_z.append(float(thrust_dir[2]))
+        self.commanded_thrust_x.append(float(cmd_thrust_dir[0]))
+        self.commanded_thrust_y.append(float(cmd_thrust_dir[1]))
+        self.commanded_thrust_z.append(float(cmd_thrust_dir[2]))
 
         self.commanded_quat_w.append(float(cmd_quat[0]))
         self.commanded_quat_x.append(float(cmd_quat[1]))
@@ -156,11 +178,13 @@ class SimulationLog:
         self.actual_quat_y.append(float(state.q[2]))
         self.actual_quat_z.append(float(state.q[3]))
 
-        # Compute inertial thrust vector (N) using throttle and thrust_on
+        # Compute ACTUAL inertial thrust vector (N) from vehicle attitude, not commanded
         throttle_val = float(guidance.get('throttle', 1.0))
         thrust_on_val = bool(guidance.get('thrust_on', True))
         thrust_mag = C.THRUST_MAGNITUDE if thrust_on_val else 0.0
-        thrust_vec = thrust_dir * (throttle_val * thrust_mag)
+        # Get actual thrust direction from vehicle quaternion
+        actual_thrust_dir = rotate_vector_by_quaternion(C.BODY_Z_AXIS, state.q)
+        thrust_vec = actual_thrust_dir * (throttle_val * thrust_mag)
         self.inertial_thrust_x.append(float(thrust_vec[0]))
         self.inertial_thrust_y.append(float(thrust_vec[1]))
         self.inertial_thrust_z.append(float(thrust_vec[2]))
@@ -183,7 +207,7 @@ class SimulationLog:
         """Write logged diagnostics to CSV for offline analysis."""
         os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
         header = [
-            'time', 'altitude_km', 'downrange_km',
+            'time', 'altitude_km', 'downrange_km', 'downrange_ground_km',
             'velocity_inertial', 'velocity_rel', 'vel_horiz', 'vel_vert',
             'mass',
             'pos_x', 'pos_y', 'pos_z', 'vel_x', 'vel_y', 'vel_z',
@@ -205,7 +229,7 @@ class SimulationLog:
             writer.writerow(header)
             for i in range(len(self.time)):
                 row = [
-                    self.time[i], self.altitude[i], self.downrange[i],
+                    self.time[i], self.altitude[i], self.downrange[i], self.downrange_ground[i],
                     self.velocity[i], self.velocity_rel[i], self.velocity_horizontal[i], self.velocity_vertical[i],
                     self.mass[i],
                     self.position_x[i], self.position_y[i], self.position_z[i],
@@ -243,13 +267,13 @@ def check_termination(state: State, max_time: float, meco_time: float = None,
     if is_propellant_exhausted(state.m):
         if not coast_to_apogee:
             return True, "MECO - Propellant exhausted"
-        # During coast, stop at apogee (vertical velocity <= 0) or after 120s of coast
+        # During coast, stop at apogee (vertical velocity <= 0) or after 15s of coast
         if meco_time is None:
             meco_time = state.t
         from .guidance import compute_local_vertical
         vertical = compute_local_vertical(state.r)
         v_vert = float(np.dot(state.v, vertical))
-        if v_vert <= 0.0 or (state.t - meco_time) > 120.0:
+        if v_vert <= 0.0 or (state.t - meco_time) > 15.0:
             return True, "Coast complete after MECO"
 
     # Target energy/velocity cutoff
@@ -331,7 +355,7 @@ def run_simulation(dt: float = None, max_time: float = None,
     # Initialize
     state = create_initial_state()
     log = SimulationLog()
-    actuator = ActuatorState(thrust_dir=C.INITIAL_THRUST_DIR if hasattr(C, 'INITIAL_THRUST_DIR') else compute_local_vertical(state.r))
+    actuator = ActuatorState(thrust_dir=compute_local_vertical(state.r))
     
     # [FIX #3] Initialize energy tracking for conservation check
     E_prev = compute_total_energy(state.r, state.v, state.m)

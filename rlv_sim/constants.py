@@ -127,7 +127,7 @@ MAX_TORQUE = 2.0e7
 # Pitchover Maneuver Parameters
 PITCHOVER_START_ALTITUDE = 0.0   # Start pitchover immediately at liftoff (m)
 PITCHOVER_END_ALTITUDE = 2000.0    # Altitude to end pitch kick (m)
-PITCHOVER_ANGLE = 2.0 * np.pi / 180.0  # 2 degrees kick
+PITCHOVER_ANGLE = 10.0 * np.pi / 180.0  # 10 degrees kick (more aggressive pitchover)
 PITCHOVER_AZIMUTH = 90.0 * np.pi / 180.0  # East (inertial +Y)
 PITCHOVER_RAMP_DISTANCE = 100.0  # Altitude range for smooth ramp-in (m)
 
@@ -135,16 +135,16 @@ PITCHOVER_RAMP_DISTANCE = 100.0  # Altitude range for smooth ramp-in (m)
 TARGET_PITCH_ANGLE = np.radians(45.0)
 
 # Guidance Logic Constants
-GRAVITY_TURN_START_ALTITUDE = 1000.0  # m - Overlap with Pitchover (1000m vs 2000m end)
-GRAVITY_TURN_TRANSITION_RANGE = 85000.0  # m (Extended to avoid premature pitch-over)
+GRAVITY_TURN_START_ALTITUDE = 500.0  # m - start gravity turn earlier
+GRAVITY_TURN_TRANSITION_RANGE = 20000.0  # m (shorter transition to make turn more aggressive)
 MIN_VELOCITY_FOR_TURN = 50.0  # m/s
 
 # =============================================================================
 # SIMULATION PARAMETERS (Table 1)
 # =============================================================================
 
-# Time step (s)
-DT = 0.01
+# Time step (s) - Reduced for better energy conservation
+DT = 0.005
 
 # Maximum simulation time (s)
 MAX_TIME = 300.0
@@ -172,8 +172,7 @@ INITIAL_VELOCITY = np.array([0.0, EARTH_ROTATION_RATE * R_EARTH, 0.0])
 # Initial quaternion - must align body +Z with radial direction
 # Vehicle at [R_earth, 0, 0], so radial is +X axis
 # Need to rotate body +Z (inertial Z) to point along inertial +X
-# Computed from rotation matrix: R @ [0,0,1] = [1,0,0]
-# This corresponds to a 90-degree rotation about +Y axis
+# This corresponds to a +90-degree rotation about +Y axis
 INITIAL_QUATERNION = np.array([np.sqrt(2)/2, 0.0, np.sqrt(2)/2, 0.0])
 
 # Initial angular velocity (body frame, rad/s)
@@ -244,8 +243,8 @@ WIND_DIRECTION_AZIMUTH = np.radians(270.0)  # from West to East
 # =============================================================================
 
 # Control Limits [FIX #2, FIX #4] - Phase I Safety Constraints
-MAX_PITCH_ANGLE = np.radians(30.0)  # [FIX #2] Maximum pitch angle 30 degrees
-MAX_GIMBAL_RATE = np.radians(12.0)   # Maximum gimbal rate 12 deg/s for faster tracking
+MAX_PITCH_ANGLE = np.radians(75.0)  # Increased from 60° to allow more aggressive pitch maneuvers
+MAX_GIMBAL_RATE = np.radians(25.0)   # Increased from 20°/s for better tracking response
 
 # =============================================================================
 

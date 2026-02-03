@@ -231,11 +231,11 @@ def direction_to_quaternion(direction: np.ndarray,
     Compute a quaternion that rotates the reference direction to the target direction.
     
     Args:
-        direction: Target direction (will be normalized)
+        direction: Target direction in inertial frame (will be normalized)
         reference: Reference direction in body frame (default: +Z = [0, 0, 1])
         
     Returns:
-        Quaternion [w, x, y, z]
+        Quaternion [w, x, y, z] that transforms body reference to inertial target
     """
     # Use default reference if not provided (avoid mutable default argument)
     if reference is None:

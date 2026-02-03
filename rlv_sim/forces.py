@@ -125,8 +125,8 @@ def compute_drag_force(r: np.ndarray, v: np.ndarray) -> np.ndarray:
     if v_rel_norm < C.SMALL_VELOCITY_TOL:
         return np.zeros(3)
         
-    # Mach Number
-    mach = v_rel_norm / speed_of_sound
+    # Mach Number (guard against division by zero at high altitude)
+    mach = v_rel_norm / max(speed_of_sound, 1.0)
     
     # Interpolate Cd
     cd = np.interp(mach, C.MACH_BREAKPOINTS, C.CD_VALUES)
@@ -199,18 +199,19 @@ def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True, t
     _, P_amb, _, _ = compute_atmosphere_properties(altitude)
     P0 = C.ATM_P0
 
-    # Isp linear with altitude (sea level -> vacuum)
-    isp = C.ISP + (C.ISP_VAC - C.ISP) * min(max(altitude, 0.0), 50000.0) / 50000.0
-
-    # Mass flow scales with throttle
-    mdot = C.MASS_FLOW_RATE * float(np.clip(throttle, 0.0, 1.0))
-    ideal_thrust = mdot * isp * C.G0
-
-    # Pressure loss term (approx Ae * dP). Use simple proportional to ambient.
-    pressure_correction = (P_amb / P0) * (C.THRUST_MAGNITUDE - ideal_thrust)
-    thrust_magnitude = ideal_thrust - pressure_correction
+    # Thrust varies with ambient pressure: T = T_vac - (T_vac - T_sl) * (P_amb / P_sl)
+    # This gives T_sl at sea level, T_vac in vacuum
+    thrust_sl = C.THRUST_MAGNITUDE  # Sea level thrust
+    thrust_vac = C.MASS_FLOW_RATE * C.ISP_VAC * C.G0  # Vacuum thrust
     
-    # Thrust in body frame (along +Z axis)
+    # Linear interpolation based on ambient pressure ratio
+    pressure_ratio = P_amb / P0
+    thrust_magnitude = thrust_vac - (thrust_vac - thrust_sl) * pressure_ratio
+    
+    # Apply throttle
+    thrust_magnitude *= float(np.clip(throttle, 0.0, 1.0))
+    
+    # Thrust in body frame (along +Z axis - vehicle nose direction)
     F_body = np.array([0.0, 0.0, thrust_magnitude])
     
     # Transform to inertial frame
@@ -272,7 +273,9 @@ def compute_aerodynamic_moment(r: np.ndarray, v: np.ndarray, q: np.ndarray, cg_p
         return np.zeros(3)
     
     # AoA (alpha) ~ v_transverse / |vz| (small angle approximation)
+    # Clamp to reasonable range to prevent instability at extreme attitudes
     alpha = np.arctan2(v_transverse, abs(vz))
+    alpha = np.clip(alpha, -np.radians(30), np.radians(30))  # Limit to ±30°
     
     # Normal Force Magnitude
     Fn_mag = q_dyn * C.REFERENCE_AREA * C.C_N_ALPHA * alpha

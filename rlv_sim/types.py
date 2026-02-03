@@ -23,6 +23,13 @@ class GuidanceOutput(TypedDict):
     local_vertical: NDArray[np.float64]  # Unit vector pointing radially outward
     local_horizontal: NDArray[np.float64]  # Unit vector in velocity direction
     throttle: float  # Throttle command (0.0 to 1.0)
+    gamma_angle: float  # Flight path angle from horizontal (radians)
+    gamma_command_deg: float  # Commanded flight path angle (degrees)
+    gamma_measured_deg: float  # Measured flight path angle (degrees)
+    velocity_tilt_deg: float  # Velocity tilt from vertical (degrees)
+    prograde: NDArray[np.float64]  # Prograde direction vector
+    v_rel: NDArray[np.float64]  # Air-relative velocity vector
+    v_rel_mag: float  # Air-relative velocity magnitude (m/s)
 
 
 class ControlOutput(TypedDict):
@@ -41,10 +48,12 @@ class ForceBreakdown(TypedDict):
     gravity: NDArray[np.float64]  # Gravity force vector (N)
     thrust: NDArray[np.float64]  # Thrust force vector (N)
     drag: NDArray[np.float64]  # Drag force vector (N)
+    coriolis: NDArray[np.float64]  # Coriolis force vector (N)
     total: NDArray[np.float64]  # Total force vector (N)
     gravity_magnitude: float  # Gravity force magnitude (N)
     thrust_magnitude: float  # Thrust force magnitude (N)
     drag_magnitude: float  # Drag force magnitude (N)
+    coriolis_magnitude: float  # Coriolis force magnitude (N)
 
 
 class AtmosphereProperties(TypedDict):
