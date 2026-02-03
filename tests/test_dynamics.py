@@ -23,11 +23,11 @@ def test_compute_angular_acceleration_zero_torque():
 def test_compute_linear_acceleration_zero_forces(monkeypatch):
     def zero_force(*a, **k):
         return np.zeros(3)
-    monkeypatch.setattr('rlv_sim.forces.compute_gravity_force', zero_force)
-    monkeypatch.setattr('rlv_sim.forces.compute_thrust_force', zero_force)
-    monkeypatch.setattr('rlv_sim.forces.compute_drag_force', zero_force)
-    monkeypatch.setattr('rlv_sim.forces.compute_lift_force', zero_force)
-    monkeypatch.setattr('rlv_sim.forces.compute_coriolis_force', zero_force)
+    # Patch in dynamics module where they are imported, not in forces module
+    monkeypatch.setattr('rlv_sim.dynamics.compute_gravity_force', zero_force)
+    monkeypatch.setattr('rlv_sim.dynamics.compute_thrust_force', zero_force)
+    monkeypatch.setattr('rlv_sim.dynamics.compute_drag_force', zero_force)
+    monkeypatch.setattr('rlv_sim.dynamics.compute_lift_force', zero_force)
     r = np.zeros(3)
     v = np.zeros(3)
     q = np.array([1.0, 0.0, 0.0, 0.0])

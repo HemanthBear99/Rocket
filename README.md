@@ -94,7 +94,7 @@ To replicate these results or test new parameters:
 
 3.  **Visualize:**
     ```bash
-    python scripts/generate_plots.py
+    python scripts/plot_generator.py
     ```
 4. **CSV**
 ```bash

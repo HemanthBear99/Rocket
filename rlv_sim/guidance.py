@@ -148,11 +148,12 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt:
     gamma_raw = gamma_target_deg + kp * error + ki * _pid_state['gamma_int'] - kd * gamma_rate
     gamma_cmd = float(np.clip(gamma_raw, gamma_target_deg - 15.0, gamma_target_deg + 15.0))
 
-    # gamma floor relaxation (deg from horizontal) - optimized for ~110km MECO
+    # gamma floor relaxation - LOWERED to allow thrust to follow velocity
+    # Previous floors were too high (84° at liftoff), causing pitch-velocity mismatch
     gamma_floor = float(np.interp(
         altitude,
-        [0.0, 3000.0, 10000.0, 25000.0, 45000.0, 65000.0, 85000.0, 100000.0],
-        [84.0, 78.0, 69.0, 54.0, 37.0, 25.0, 19.0, 16.0],
+        [0.0, 1000.0, 5000.0, 15000.0, 35000.0, 55000.0, 80000.0, 100000.0],
+        [75.0, 65.0, 50.0, 35.0, 22.0, 15.0, 12.0, 10.0],
     ))
     gamma_cmd = float(np.clip(gamma_cmd, gamma_floor, 90.0))
     _pid_state['prev_gamma_meas'] = gamma_meas_deg
@@ -167,19 +168,18 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt:
     theta_bias = np.radians(-bias_gain * gamma_err)
     theta = theta_ff + theta_bias
 
-    # Pitch envelope (altitude dependent)
+    # Pitch envelope (altitude dependent) - RELAXED to allow thrust to follow velocity
+    # Previous caps were too restrictive, causing 20-30° angle of attack
     theta_cap = float(np.interp(
         altitude,
-        [0.0, 500.0, 3000.0, 10000.0, 25000.0, 60000.0],
-        np.radians([15.0, 25.0, 40.0, 60.0, 75.0, 85.0])
+        [0.0, 500.0, 2000.0, 5000.0, 15000.0, 40000.0, 70000.0],
+        np.radians([25.0, 40.0, 55.0, 70.0, 80.0, 85.0, 88.0])
     ))
 
-    # Safeguards for near-zero or negative vertical rates
-    # Allow larger pitch angles to achieve proper trajectory
-    if v_vert < 20.0 and altitude < 3000.0:
-        theta_cap = min(theta_cap, np.radians(35.0))
-    if v_vert < 0.0 and altitude < 30000.0:
-        theta_cap = min(theta_cap, np.radians(40.0))
+    # Safeguards only for very low altitude near-zero vertical velocity
+    if v_vert < 10.0 and altitude < 1000.0:
+        theta_cap = min(theta_cap, np.radians(30.0))
+    # Do NOT limit pitch at higher altitudes - let it follow the trajectory
 
     theta = float(np.clip(theta, 0.0, theta_cap))
 

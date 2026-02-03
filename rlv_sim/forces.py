@@ -242,6 +242,11 @@ def compute_aerodynamic_moment(r: np.ndarray, v: np.ndarray, q: np.ndarray, cg_p
     
     if rho < C.DENSITY_FLOOR:
         return np.zeros(3)
+    
+    # Early exit for stationary vehicle (same pattern as compute_drag_force)
+    # This prevents spurious moments when v=0 but Earth rotation creates v_rel
+    if np.linalg.norm(v) < C.SMALL_VELOCITY_TOL:
+        return np.zeros(3)
         
     # Relative Velocity (Wind)
     v_rel = compute_relative_velocity(r, v)

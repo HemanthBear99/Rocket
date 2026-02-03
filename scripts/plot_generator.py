@@ -663,6 +663,111 @@ def plot_physics_check(data: TrajectoryData, output_dir: str) -> str:
     return path
 
 
+def plot_pitch_gamma_diagnostic(data: TrajectoryData, output_dir: str) -> str:
+    """Generate diagnostic plot comparing thrust direction vs velocity direction.
+    
+    This is the key diagnostic for verifying pitch/trajectory coupling:
+    - Thrust pitch (from vertical): Actual body Z vs local vertical
+    - Velocity tilt (from vertical): atan(v_horiz/v_vert)
+    - Gamma command (from horizontal): Guidance target
+    
+    If these don't align properly, there's a frame or coupling issue.
+    
+    Args:
+        data: TrajectoryData object
+        output_dir: Directory to save the plot
+        
+    Returns:
+        Path to saved plot file
+    """
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
+    fig.suptitle('Pitch/Gamma Diagnostic: Thrust Direction vs Velocity Direction', 
+                 fontsize=14, fontweight='bold')
+    
+    # Compute velocity tilt from vertical (0 = vertical, 90 = horizontal)
+    r_mag = np.linalg.norm(data.position, axis=1)
+    r_hat = data.position / r_mag[:, np.newaxis]
+    
+    # Use relative velocity for vt calculation
+    v_rel_radial = np.sum(data.velocity_rel_vec * r_hat, axis=1)  # vertical component
+    v_rel_tangent = np.sqrt(np.maximum(data.velocity_rel**2 - v_rel_radial**2, 0))  # horizontal
+    velocity_tilt_from_vertical = np.degrees(np.arctan2(v_rel_tangent, np.maximum(v_rel_radial, 1.0)))
+    
+    # Pitch angles  
+    # data.pitch_angle = commanded pitch from vertical
+    # data.actual_pitch = actual body pitch from vertical
+    pitch_cmd = data.pitch_angle
+    pitch_actual = data.actual_pitch
+    
+    # Gamma (from horizontal) -> pitch from vertical = 90 - gamma
+    gamma_implies_pitch = 90.0 - data.gamma_cmd
+    
+    # ===== Subplot 1: All angles on same scale =====
+    ax1.plot(data.time, pitch_cmd, 'b-', linewidth=2, label='Pitch Command (from vertical)')
+    ax1.plot(data.time, pitch_actual, 'b--', linewidth=1.5, alpha=0.7, label='Pitch Actual (from vertical)')
+    ax1.plot(data.time, velocity_tilt_from_vertical, 'g-', linewidth=2, label='Velocity Tilt (from vertical)')
+    ax1.plot(data.time, gamma_implies_pitch, 'r:', linewidth=2, label='90° - γ_cmd')
+    
+    ax1.set_ylabel('Angle from Vertical (°)')
+    ax1.set_title('Comparison: Thrust Pitch vs Velocity Tilt')
+    ax1.legend(loc='upper left', fontsize=9, framealpha=0.95)
+    ax1.set_ylim(0, 95)
+    ax1.axhline(45, color='gray', linestyle=':', alpha=0.3)
+    
+    # ===== Subplot 2: Gamma angles (from horizontal) =====
+    gamma_measured = 90.0 - velocity_tilt_from_vertical
+    ax2.plot(data.time, data.gamma_cmd, 'purple', linewidth=2, label='γ Command')
+    ax2.plot(data.time, gamma_measured, 'orange', linewidth=2, label='γ Measured (from velocity)')
+    ax2.plot(data.time, data.gamma_rel, 'k--', linewidth=1.5, alpha=0.7, label='γ Relative (logged)')
+    
+    ax2.set_ylabel('Flight Path Angle γ (° from horizontal)')
+    ax2.set_title('Flight Path Angle: Command vs Actual')
+    ax2.legend(loc='upper right', fontsize=9, framealpha=0.95)
+    ax2.set_ylim(-5, 100)
+    ax2.axhline(90, color='gray', linestyle=':', alpha=0.3, label='Vertical')
+    ax2.axhline(0, color='gray', linestyle=':', alpha=0.3, label='Horizontal')
+    
+    # ===== Subplot 3: Alignment error =====
+    # Difference between thrust pitch and velocity tilt indicates angle of attack
+    pitch_velocity_diff = np.abs(pitch_actual - velocity_tilt_from_vertical)
+    gamma_tracking_error = np.abs(data.gamma_cmd - gamma_measured)
+    
+    ax3.plot(data.time, pitch_velocity_diff, 'r-', linewidth=2, 
+             label='|Thrust Pitch - Velocity Tilt|')
+    ax3.plot(data.time, gamma_tracking_error, 'b--', linewidth=1.5,
+             label='|γ_cmd - γ_meas|')
+    ax3.axhline(10, color='orange', linestyle='--', linewidth=1.5, label='10° Warning')
+    
+    ax3.set_xlabel('Time (s)')
+    ax3.set_ylabel('Angle Difference (°)')
+    ax3.set_title('Alignment & Tracking Error')
+    ax3.legend(loc='upper right', fontsize=9, framealpha=0.95)
+    ax3.set_ylim(0, None)
+    
+    # Text summary box
+    final_pitch = pitch_actual[-1] if len(pitch_actual) > 0 else 0
+    final_v_tilt = velocity_tilt_from_vertical[-1] if len(velocity_tilt_from_vertical) > 0 else 0
+    final_gamma = data.gamma_cmd[-1] if len(data.gamma_cmd) > 0 else 0
+    max_downrange = data.downrange[-1] if len(data.downrange) > 0 else 0
+    
+    summary = (f"At MECO:\n"
+               f"  Pitch (from vert): {final_pitch:.1f}°\n"
+               f"  Vel tilt (from vert): {final_v_tilt:.1f}°\n"
+               f"  γ command: {final_gamma:.1f}° (from horiz)\n"
+               f"  Downrange: {max_downrange:.1f} km\n\n"
+               f"Expected: pitch ≈ vel_tilt ≈ (90-γ)")
+    
+    ax3.text(0.98, 0.97, summary, transform=ax3.transAxes, fontsize=9,
+             verticalalignment='top', horizontalalignment='right',
+             bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.95))
+    
+    plt.tight_layout()
+    path = os.path.join(output_dir, '14_pitch_gamma_diagnostic.png')
+    fig.savefig(path, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+    
+    return path
+
 def plot_comprehensive_dashboard(data: TrajectoryData, output_dir: str) -> str:
     """Generate comprehensive 6-panel dashboard summary.
     
@@ -792,6 +897,7 @@ def generate_all_plots(log, output_dir: str = "plots") -> List[str]:
         plot_flight_path_angle,
         plot_dynamic_pressure,
         plot_physics_check,
+        plot_pitch_gamma_diagnostic,
         plot_comprehensive_dashboard,
     ]
     
