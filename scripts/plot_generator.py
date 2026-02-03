@@ -849,6 +849,197 @@ def plot_comprehensive_dashboard(data: TrajectoryData, output_dir: str) -> str:
 
 
 # =============================================================================
+# README-Specific Plots
+# =============================================================================
+
+def plot_ascent_profile(data: TrajectoryData, output_dir: str) -> str:
+    """Generate the ascent_profile.png dashboard referenced in README.
+    
+    Combined 4-panel view of Altitude, Velocity, Mass, and Pitch.
+    
+    Args:
+        data: TrajectoryData object
+        output_dir: Directory to save the plot
+        
+    Returns:
+        Path to saved plot file
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle('RLV Phase-I Ascent Profile Dashboard', fontsize=16, fontweight='bold')
+    
+    # Panel 1: Altitude
+    ax = axes[0, 0]
+    ax.fill_between(data.time, 0, data.altitude, alpha=0.3, color='#1f77b4')
+    ax.plot(data.time, data.altitude, 'b-', linewidth=2.5)
+    ax.scatter([data.time[-1]], [data.altitude[-1]], c='red', s=100, marker='*', 
+               zorder=5, label=f'MECO: {data.altitude[-1]:.1f} km')
+    ax.set_xlabel('Time (s)', fontsize=11)
+    ax.set_ylabel('Altitude (km)', fontsize=11)
+    ax.set_title('Altitude Profile', fontweight='bold', fontsize=12)
+    ax.legend(loc='lower right', fontsize=10)
+    ax.set_xlim(0, data.time[-1])
+    ax.set_ylim(0, None)
+    ax.grid(True, alpha=0.3)
+    
+    # Panel 2: Velocity
+    ax = axes[0, 1]
+    ax.plot(data.time, data.velocity, 'r-', linewidth=2.5, label='Inertial')
+    ax.plot(data.time, data.velocity_rel, 'g--', linewidth=2, label='Relative')
+    ax.scatter([data.time[-1]], [data.velocity[-1]], c='red', s=100, marker='*', 
+               zorder=5, label=f'MECO: {data.velocity[-1]:.0f} m/s')
+    ax.set_xlabel('Time (s)', fontsize=11)
+    ax.set_ylabel('Velocity (m/s)', fontsize=11)
+    ax.set_title('Velocity Profile', fontweight='bold', fontsize=12)
+    ax.legend(loc='lower right', fontsize=10)
+    ax.set_xlim(0, data.time[-1])
+    ax.set_ylim(0, None)
+    ax.grid(True, alpha=0.3)
+    
+    # Panel 3: Mass
+    ax = axes[1, 0]
+    mass_tonnes = data.mass / 1000.0
+    ax.fill_between(data.time, 0, mass_tonnes, alpha=0.3, color='#2ca02c')
+    ax.plot(data.time, mass_tonnes, 'g-', linewidth=2.5)
+    ax.axhline(y=C.DRY_MASS/1000, color='orange', linestyle='--', linewidth=2,
+               label=f'Dry Mass: {C.DRY_MASS/1000:.0f} t')
+    ax.set_xlabel('Time (s)', fontsize=11)
+    ax.set_ylabel('Mass (tonnes)', fontsize=11)
+    ax.set_title('Vehicle Mass', fontweight='bold', fontsize=12)
+    ax.legend(loc='upper right', fontsize=10)
+    ax.set_xlim(0, data.time[-1])
+    ax.set_ylim(0, None)
+    ax.grid(True, alpha=0.3)
+    
+    # Panel 4: Pitch
+    ax = axes[1, 1]
+    ax.fill_between(data.time, 0, data.pitch_angle, alpha=0.3, color='#9467bd')
+    ax.plot(data.time, data.pitch_angle, color='purple', linewidth=2.5)
+    ax.set_xlabel('Time (s)', fontsize=11)
+    ax.set_ylabel('Pitch Angle (° from Vertical)', fontsize=11)
+    ax.set_title('Pitch Angle Evolution', fontweight='bold', fontsize=12)
+    ax.set_xlim(0, data.time[-1])
+    ax.set_ylim(0, 95)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    path = os.path.join(output_dir, 'ascent_profile.png')
+    fig.savefig(path, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+    
+    return path
+
+
+def plot_control_dynamics(data: TrajectoryData, output_dir: str) -> str:
+    """Generate the control_dynamics.png referenced in README.
+    
+    Combined view of Attitude Error, Control Torque, and Guidance Commands.
+    
+    Args:
+        data: TrajectoryData object
+        output_dir: Directory to save the plot
+        
+    Returns:
+        Path to saved plot file
+    """
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
+    fig.suptitle('Control System Performance', fontsize=16, fontweight='bold')
+    
+    # Panel 1: Attitude Error
+    ax = axes[0]
+    ax.plot(data.time, data.attitude_error, 'c-', linewidth=2, label='Attitude Error')
+    ax.axhline(y=1.0, color='orange', linestyle='--', linewidth=2, label='1° Threshold')
+    max_error = np.max(data.attitude_error)
+    ax.axhline(y=max_error, color='red', linestyle=':', linewidth=1.5, alpha=0.7,
+               label=f'Max: {max_error:.2f}°')
+    ax.set_ylabel('Attitude Error (°)', fontsize=11)
+    ax.set_title('Attitude Tracking Error', fontweight='bold', fontsize=12)
+    ax.legend(loc='upper right', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim(0, None)
+    
+    # Panel 2: Control Torque
+    ax = axes[1]
+    torque_mn = data.torque / 1e6
+    ax.plot(data.time, torque_mn, color='#ff7f0e', linewidth=2, label='Control Torque')
+    ax.axhline(y=C.MAX_TORQUE/1e6, color='red', linestyle='--', linewidth=1.5,
+               label=f'Saturation: {C.MAX_TORQUE/1e6:.1f} MN·m')
+    ax.set_ylabel('Torque (MN·m)', fontsize=11)
+    ax.set_title('Control Torque Magnitude', fontweight='bold', fontsize=12)
+    ax.legend(loc='upper right', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim(0, None)
+    
+    # Panel 3: Guidance Commands (gamma tracking)
+    ax = axes[2]
+    ax.plot(data.time, data.gamma_cmd, 'b-', linewidth=2.5, label='γ Command')
+    ax.plot(data.time, data.gamma_rel, 'g--', linewidth=2, label='γ Actual')
+    ax.axhline(y=90, color='gray', linestyle=':', alpha=0.5)
+    ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
+    ax.set_xlabel('Time (s)', fontsize=11)
+    ax.set_ylabel('Flight Path Angle (°)', fontsize=11)
+    ax.set_title('Guidance Commands', fontweight='bold', fontsize=12)
+    ax.legend(loc='center right', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim(-5, 100)
+    
+    plt.tight_layout()
+    path = os.path.join(output_dir, 'control_dynamics.png')
+    fig.savefig(path, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+    
+    return path
+
+
+def plot_flight_path_readme(data: TrajectoryData, output_dir: str) -> str:
+    """Generate the 11_flight_path_angle.png referenced in README.
+    
+    Flight path angle evolution with correct filename for README.
+    
+    Args:
+        data: TrajectoryData object
+        output_dir: Directory to save the plot
+        
+    Returns:
+        Path to saved plot file
+    """
+    fig, ax = plt.subplots(figsize=(10, 7))
+    
+    ax.plot(data.time, data.gamma_rel, 'b-', linewidth=3, 
+            label=r'$\gamma_{relative}$ (Primary)')
+    ax.plot(data.time, data.gamma_cmd, 'g--', linewidth=2, alpha=0.8,
+            label=r'$\gamma_{command}$')
+    ax.plot(data.time, data.gamma_actual, 'r:', linewidth=2, alpha=0.8,
+            label=r'$\gamma_{actual}$')
+    
+    ax.axhline(y=90, color='gray', linestyle=':', alpha=0.5, linewidth=1.5)
+    ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5, linewidth=1.5)
+    
+    ax.set_xlabel('Time (s)', fontsize=12)
+    ax.set_ylabel(r'Flight Path Angle $\gamma$ (° from Horizontal)', fontsize=12)
+    ax.set_title('Flight Path Angle Evolution', fontweight='bold', fontsize=14)
+    ax.legend(loc='center right', fontsize=11, framealpha=0.95)
+    ax.set_xlim(0, data.time[-1])
+    ax.set_ylim(-5, 100)
+    ax.grid(True, alpha=0.3)
+    
+    # Physics explanation box
+    textstr = (r'$\gamma$ Definition:' + '\n'
+               r'$\gamma = 90°$: Vertical climb' + '\n'
+               r'$\gamma = 0°$: Horizontal flight' + '\n'
+               r'$\gamma < 0°$: Descent')
+    ax.text(0.02, 0.35, textstr, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.95))
+    
+    plt.tight_layout()
+    path = os.path.join(output_dir, '11_flight_path_angle.png')
+    fig.savefig(path, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+    
+    return path
+
+
+# =============================================================================
 # Main Generation Function
 # =============================================================================
 
@@ -899,6 +1090,10 @@ def generate_all_plots(log, output_dir: str = "plots") -> List[str]:
         plot_physics_check,
         plot_pitch_gamma_diagnostic,
         plot_comprehensive_dashboard,
+        # README-specific plots
+        plot_ascent_profile,
+        plot_control_dynamics,
+        plot_flight_path_readme,
     ]
     
     for plot_func in plot_functions:
