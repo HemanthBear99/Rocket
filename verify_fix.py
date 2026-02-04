@@ -19,31 +19,27 @@ def main():
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
         
         # Upper: Angles
-        ax1.plot(log.time, log.actual_pitch_angle, label='Pitch (Vertical)', color='blue')
-        ax1.plot(log.time, log.gamma_actual_deg, label='Gamma (Horizontal)', color='orange')
-        ax1.plot(log.time, 90.0 - np.array(log.gamma_actual_deg), label='90-Gamma', color='green', linestyle='--')
+        ax1.plot(log.time, log.actual_pitch_angle, label='Pitch Actual', color='blue')
+        ax1.plot(log.time, log.pitch_angle, label='Pitch Command', color='cyan', linestyle=':')
+        ax1.plot(log.time, log.velocity_tilt_deg, label='Velocity Tilt', color='green', linestyle='--')
         ax1.set_title('Pitch & Gamma Alignment')
         ax1.legend()
         ax1.grid(True)
         
-        # Lower: AoA proxy (Pitch - (90-Gamma)) approx? 
-        # Better: Use velocity tilt vs pitch
-        # velocity_tilt_deg is angle of velocity vector from vertical.
-        # AoA approx = |Pitch - Velocity_Tilt|
+        # Lower: AoA (Actual vs Velocity) AND (Command vs Velocity)
+        # AoA Actual = |Actual - Velocity|
+        aoa_actual = np.abs(np.array(log.actual_pitch_angle) - np.array(log.velocity_tilt_deg))
+        # AoA Command = |Command - Velocity|
+        aoa_cmd = np.abs(np.array(log.pitch_angle) - np.array(log.velocity_tilt_deg))
         
-        # Note: log.velocity_tilt_deg is 0=vertical, 90=horizontal
-        aoa_est = np.abs(np.array(log.actual_pitch_angle) - np.array(log.velocity_tilt_deg))
-        
-        ax2.plot(log.time, aoa_est, label='Est. AoA (deg)', color='red')
+        ax2.plot(log.time, aoa_actual, label='AoA Actual (deg)', color='red')
+        ax2.plot(log.time, aoa_cmd, label='AoA Command (deg)', color='orange', linestyle='--')
         
         # Add dynamic pressure on secondary axis
         ax2b = ax2.twinx()
         q_kpa = [0.5 * 1.225 * np.exp(-h/8500) * v**2 / 1000 for h, v in zip(log.altitude, log.velocity_rel)]
-        # This is rough approx q, use accurate if available but log doesn't store rho directly
-        # log has 'dynamic_pressure' if I added it? No, SimulationLog doesn't have it by default
-        # But guidance computes it.
-        
         ax2b.plot(log.time, q_kpa, color='gray', alpha=0.3, label='q (approx kPa)')
+        ax2b.set_ylabel('Dynamic Pressure (kPa)')
         
         ax2.set_ylabel('Angle of Attack (deg)')
         ax2.set_xlabel('Time (s)')

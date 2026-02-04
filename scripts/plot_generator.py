@@ -146,9 +146,23 @@ def extract_log_data(log) -> TrajectoryData:
     position = np.column_stack((pos_x, pos_y, pos_z))
     velocity_vec = np.column_stack((vel_x, vel_y, vel_z))
     
-    # Relative velocity (accounting for Earth rotation)
-    omega_vec = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
-    velocity_rel_vec = velocity_vec - np.cross(omega_vec, position)
+    # Relative velocity (accounting for Earth rotation AND wind)
+    from rlv_sim.utils import compute_relative_velocity
+    
+    # Vectorized computation of relative velocity
+    # We need to loop or map because compute_relative_velocity expects single vectors
+    # or we can rely on numpy broadcasting if r/v are arrays.
+    # rlv_sim.utils.compute_relative_velocity uses np.cross and _wind_vector.
+    # _wind_vector uses norm(r). If r is (N,3), norm(r) is (N,).
+    # Let's verify if utils supports broadcasting.
+    # _wind_vector: alt = np.linalg.norm(r) - ... -> Returns scalar if r is 1D.
+    # So we probably need to list comp it or update utils.
+    # For safety in plot script, list comp is fine.
+    
+    velocity_rel_vec = np.array([
+        compute_relative_velocity(p, v) 
+        for p, v in zip(position, velocity_vec)
+    ])
     velocity_rel = np.linalg.norm(velocity_rel_vec, axis=1)
     
     # Flight path angle calculations
@@ -634,27 +648,67 @@ def plot_physics_check(data: TrajectoryData, output_dir: str) -> str:
     
     # Subplot 1: Pitch vs Velocity Angle
     ax1.plot(data.time, data.pitch_angle, 'purple', linewidth=2,
-             label='Pitch Angle $\\theta$')
+             label='Pitch Angle $\\theta$ (Body Z)')
     ax1.plot(data.time, velocity_angle, 'g--', linewidth=2,
-             label='Velocity Angle')
+             label='Velocity Angle (Wind-Relative)')
     ax1.set_ylabel('Angle from Vertical (°)')
-    ax1.set_title('Pitch vs Velocity Vector Alignment', fontweight='bold')
-    ax1.legend(loc='upper left', framealpha=0.95)
+    ax1.set_title('Pitch vs Wind-Relative Velocity Vector', fontweight='bold')
+    ax1.legend(loc='lower right', framealpha=0.95)
     ax1.set_ylim(0, 95)
+    ax1.grid(True, which='both', alpha=0.3)
     
-    # Subplot 2: Angle of Attack Estimate
+    # Subplot 2: Angle of Attack Estimate with Q context
     alpha = np.abs(data.pitch_angle - velocity_angle)
-    ax2.plot(data.time, alpha, 'r-', linewidth=2, 
-             label='Estimated Angle of Attack')
-    ax2.axhline(y=0, color='k', linestyle='-', linewidth=0.8)
-    ax2.axhline(y=10, color='orange', linestyle='--', 
-                label='10° Awareness Threshold')
-    ax2.set_xlabel('Time (s)')
-    ax2.set_ylabel('Angle of Attack (°)')
-    ax2.set_title('Estimated Angle of Attack', fontweight='bold')
-    ax2.legend(loc='upper right', framealpha=0.95)
-    ax2.set_ylim(0, None)
     
+    # Mask AoA where dynamic pressure is negligible (q < 100 Pa)
+    # This hides the misleading "90 degree" spike at liftoff where
+    # velocity is just Earth rotation and airspeed is effectively zero.
+    q_threshold = 100.0  # Pa
+    alpha_masked = np.where(data.dynamic_pressure > q_threshold, alpha, np.nan)
+    
+    # Primary Axis: AoA
+    line1 = ax2.plot(data.time, alpha_masked, 'r-', linewidth=2, 
+             label='Angle of Attack (Wind-Relative)')
+    ax2.axhline(y=0, color='k', linestyle='-', linewidth=0.8)
+    line2 = ax2.axhline(y=10, color='orange', linestyle='--', 
+                label='10° Safety Threshold')
+    
+    ax2.set_ylabel('Angle of Attack (°)')
+    # Use non-masked max for y-limit, but cap at reasonable value
+    ax2.set_ylim(0, min(15, max(12, np.nanmax(alpha_masked)*1.2 if not np.all(np.isnan(alpha_masked)) else 12)))
+    
+    # Secondary Axis: Dynamic Pressure
+    ax2b = ax2.twinx()
+    q_kpa = data.dynamic_pressure / 1000.0
+    
+    # Fill background based on Q
+    # We want to highlight High-Q region
+    # Create a filled curve
+    ax2b.fill_between(data.time, 0, q_kpa, color='gray', alpha=0.15, label='Dynamic Pressure (q)')
+    line3 = ax2b.plot(data.time, q_kpa, color='gray', linestyle=':', linewidth=1, label='Dynamic Pressure')
+    
+    ax2b.set_ylabel('Dynamic Pressure (kPa)', color='gray')
+    ax2b.tick_params(axis='y', labelcolor='gray')
+    ax2b.set_ylim(0, None)
+    
+    # Combine legends
+    lines = line1 + [line2] + line3
+    lbls = [l.get_label() for l in lines]
+    ax2.legend(lines, lbls, loc='upper right', framealpha=0.95)
+    
+    ax2.set_xlabel('Time (s)')
+    ax2.set_title('Angle of Attack & Dynamic Pressure', fontweight='bold')
+    
+    # Annotations for Guidance Phases
+    # Prograde Lock starts roughly when Q > 10kPa or Alt > 10km
+    # Let's find time where Q > 10kPa
+    high_q_idx = np.where(q_kpa > 10.0)[0]
+    if len(high_q_idx) > 0:
+        t_lock = data.time[high_q_idx[0]]
+        ax2.axvline(x=t_lock, color='blue', linestyle='-.', alpha=0.5)
+        ax2.text(t_lock + 2, ax2.get_ylim()[1]*0.8, "High-Q / Prograde Lock", 
+                 color='blue', fontsize=9, rotation=0)
+
     plt.tight_layout()
     path = os.path.join(output_dir, '12_physics_validation.png')
     fig.savefig(path, bbox_inches='tight', dpi=300)

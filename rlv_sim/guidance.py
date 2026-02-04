@@ -65,8 +65,9 @@ def gamma_profile_from_altitude(altitude: float) -> float:
     
     # Turn parameters
     turn_start_alt = 1000.0   # m
-    turn_scale = 45000.0      # Scale height for the turn shape
-    
+    # Revert to 45000 to ensure the profile actually commands a turn compatible with physics
+    turn_scale = 45000.0      
+
     if altitude < turn_start_alt:
         return np.radians(gamma_start)
         
@@ -157,95 +158,70 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt:
     _pid_state['gamma_int'] = float(np.clip(_pid_state['gamma_int'], -20.0, 20.0))
     gamma_raw = gamma_target_deg + kp * error + ki * _pid_state['gamma_int'] - kd * gamma_rate
     
-    # Compute commanded pitch angle (from vertical)
-    # pitch = 90 - gamma
-    # We command thrust vector direction directly
-    
     # -------------------------------------------------------------------------
-    # 3. Dynamic Pressure & AoA Limiting (Aero Safety)
+    # 3. Dynamic Pressure & Zero-Lift Logic (Prograde Locking)
     # -------------------------------------------------------------------------
     _, _, rho, _ = compute_atmosphere_properties(altitude)
     q_dyn = 0.5 * rho * v_rel_norm**2
     
-    # Define max allowed AoA as function of q
-    # At low q (liftoff), large AoA is fine (control authority is needed)
-    # At high q (Max-Q), clamp AoA tighter to prevent breakup
-    
-    # Profile:
-    # 0 kPa -> 20 deg
-    # 15 kPa -> 10 deg
-    # 30+ kPa -> 4 deg
-    if q_dyn < 1000.0:
-        max_aoa_deg = 20.0
-    else:
-        # Linear ramp from 20 deg at 1kPa down to 4 deg at 30kPa
-        max_aoa_deg = float(np.interp(q_dyn, [1000.0, 30000.0], [20.0, 4.0]))
-    
-    # Velocity vector direction (Prograde)
+    # Calculate Velocity Vector Direction (Prograde)
     if v_rel_norm > 1.0:
         prograde = v_rel / v_rel_norm
     else:
         prograde = vertical
 
-    # Initial Thrust Vector Candidate (Tracking Guidance PID)
-    # We construct it in local frame: 
-    # Gamma command -> Pitch command
-    # Pitch is angle from vertical towards horizontal (downrange)
+    # Initial "Guidance" Thrust Vector (from Gamma Profile PID)
     gamma_cmd_clamped = float(np.clip(gamma_raw, 10.0, 90.0))
     pitch_cmd_rad = np.radians(90.0 - gamma_cmd_clamped)
     
-    # Construct desired thrust vector in plane defined by Vertical and Velocity (or East)
-    # Ideal heading is generally East or aligned with velocity
     if v_horiz > 1.0:
         horiz_axis = v_horiz_vec / v_horiz
     else:
-        horiz_axis = east # Default to East at liftoff
+        horiz_axis = east 
         
-    thrust_dir_nominal = np.cos(pitch_cmd_rad) * vertical + np.sin(pitch_cmd_rad) * horiz_axis
-    thrust_dir_nominal /= np.linalg.norm(thrust_dir_nominal)
-    
+    guidance_dir = np.cos(pitch_cmd_rad) * vertical + np.sin(pitch_cmd_rad) * horiz_axis
+    guidance_dir /= np.linalg.norm(guidance_dir)
+
     # -------------------------------------------------------------------------
-    # 4. AoA Limiting Logic
+    # 4. Mode Mixing: Blend from Guidance to Prograde based on ALTITUDE
     # -------------------------------------------------------------------------
-    # Calculate angle between Nominal Thrust and Prograde (Velocity Vector)
-    # This is effectively the commanded geometric AoA
-    dot_prod = np.clip(np.dot(thrust_dir_nominal, prograde), -1.0, 1.0)
-    angle_diff = np.arccos(dot_prod) # radians
-    angle_diff_deg = np.degrees(angle_diff)
+    # We blend nicely from 1km to 10km to avoid Q-based jumps.
+    # 0km - 1km: Pure Guidance (Launch/Vertical)
+    # 1km - 10km: Blend in Prograde (Gravity Turn Start)
+    # > 10km: Pure Prograde (Gravity Turn Lock)
     
-    # If commanded AoA exceeds limit, rotate thrust vector towards prograde
-    if angle_diff_deg > max_aoa_deg and v_rel_norm > 20.0:
-        # We need to find a vector that is 'max_aoa_deg' away from prograde,
-        # but in the same plane as (prograde, thrust_dir_nominal)
-        
-        # Rotation axis (perpendicular to plane)
-        rot_axis = np.cross(prograde, thrust_dir_nominal)
-        norm_axis = np.linalg.norm(rot_axis)
-        
-        if norm_axis < 1e-6:
-            # Vectors parallel, no correction needed (or 180 deg opp, effectively crashed)
-            thrust_dir = thrust_dir_nominal
-        else:
-            rot_axis /= norm_axis
-            
-            # Rotate Prograde towards Thrust Dir by Max AoA
-            # We want the vector at angle `max_aoa` from prograde
-            # Rodrigues rotation formula
-            theta = np.radians(max_aoa_deg)
-            # v_rot = v cos t + (k x v) sin t + k (k . v) (1 - cos t)
-            # Here k is rot_axis, v is prograde. k.v is 0.
-            
-            thrust_dir = (prograde * np.cos(theta) + 
-                          np.cross(rot_axis, prograde) * np.sin(theta))
-            
-            # Update gamma_cmd to reflect the clamped vector
-            # This ensures logged gamma_cmd matches what we actually flew
-            # (optional, but good for debugging)
-            cos_p = np.dot(thrust_dir, vertical)
-            gamma_cmd_clamped = np.degrees(np.arcsin(np.clip(cos_p, -1.0, 1.0)))
-            
+    mix_start_alt = 1000.0
+    mix_end_alt = 10000.0
+    
+    if altitude < mix_start_alt:
+        w_prograde = 0.0
+    elif altitude > mix_end_alt:
+        w_prograde = 1.0
     else:
-        thrust_dir = thrust_dir_nominal
+        w_prograde = (altitude - mix_start_alt) / (mix_end_alt - mix_start_alt)
+        
+    # Safety Override: If Q is massive (>20kPa), FORCE prograde regardless of altitude
+    # to avoid structural break.
+    if q_dyn > 20000.0:
+         w_prograde = 1.0
+        
+    # Apply Blend
+    # thrust_dir = (1 - w) * guidance + w * prograde
+    thrust_dir_mixed = (1.0 - w_prograde) * guidance_dir + w_prograde * prograde
+    
+    # Re-normalize
+    norm_mixed = np.linalg.norm(thrust_dir_mixed)
+    if norm_mixed > 1e-6:
+        thrust_dir_mixed /= norm_mixed
+    else:
+        thrust_dir_mixed = guidance_dir
+        
+    thrust_dir = thrust_dir_mixed
+    
+    # Update gamma_cmd simply for logging (what are we actually commanding?)
+    # We back-calculate the effective command from our final vector
+    cos_p = np.dot(thrust_dir, vertical)
+    gamma_cmd_clamped = np.degrees(np.arcsin(np.clip(cos_p, -1.0, 1.0)))
 
     _pid_state['prev_gamma_meas'] = gamma_meas_deg
 
