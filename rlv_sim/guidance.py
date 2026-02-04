@@ -40,33 +40,46 @@ def compute_local_horizontal(r: np.ndarray, v: np.ndarray) -> np.ndarray:
 
 
 def gamma_profile_from_altitude(altitude: float) -> float:
-    """Piecewise-linear gamma profile (from horizontal) based on altitude (m).
-    
-    Optimized trajectory targeting ~110km at MECO without guidance divergence.
-    Moderate aggression: earlier turn than balanced, but achievable.
     """
-    alt_km = altitude / 1000.0
-    # Optimized profile: 90° -> 18° over 100km (reaches ~110km at MECO)
-    pts = [
-        (0.0, 90.0),    # Vertical at launch
-        (3.0, 84.0),    # Start turn early
-        (10.0, 74.0),   # Accelerate gravity turn
-        (25.0, 58.0),   # Moderate turn
-        (45.0, 40.0),   # Push toward horizontal
-        (65.0, 28.0),   # Turn for horizontal velocity
-        (85.0, 21.0),   # Near horizontal
-        (100.0, 18.0),  # Target gamma at 100km
-    ]
-    if alt_km <= pts[0][0]:
-        return np.radians(pts[0][1])
-    for i in range(len(pts) - 1):
-        a0, g0 = pts[i]
-        a1, g1 = pts[i + 1]
-        if alt_km <= a1:
-            frac = (alt_km - a0) / (a1 - a0)
-            gamma_deg = g0 + frac * (g1 - g0)
-            return np.radians(gamma_deg)
-    return np.radians(pts[-1][1])
+    Continuous, smooth gamma profile (gravity turn) based on altitude.
+    
+    Uses a tanh-based shaping function to ensure C1 continuity (smooth derivatives)
+    which helps the Attitude Control System track the command without saturating.
+    
+    Gamma starts at 90 deg (Vertical) and smoothly decays to ~18 deg at MECO.
+    """
+    # Parameters for the smooth turn
+    # Start turn around 1 km, main turn fits the 10-60km region.
+    
+    # Normalized altitude coordinate (0 to 1) for the main atmospheric ascent
+    # We want a smooth transition from 90 -> target_gamma
+    
+    # Target gamma at 110km is ~18-20 deg
+    gamma_start = 90.0
+    gamma_final = 18.0 
+    
+    # Smoothstep-like or sigmoid transition
+    # Use a modified tanh shape: y = start + (final - start) * tanh(k * alt)^n
+    # Or simply: y = 90 - (90 - final) * f(alt)
+    # where f(alt) goes 0->1
+    
+    # Turn parameters
+    turn_start_alt = 1000.0   # m
+    turn_scale = 45000.0      # Scale height for the turn shape
+    
+    if altitude < turn_start_alt:
+        return np.radians(gamma_start)
+        
+    # Normalized altitude for turn curve
+    h_norm = (altitude - turn_start_alt) / turn_scale
+    
+    # Tanh shape: goes 0 -> 1 smoothly
+    progress = np.tanh(h_norm)
+    
+    # Gamma in degrees
+    gamma_deg = gamma_start + (gamma_final - gamma_start) * progress
+    
+    return np.radians(gamma_deg)
 
 
 def compute_blend_parameter(altitude: float) -> float:
@@ -74,16 +87,24 @@ def compute_blend_parameter(altitude: float) -> float:
     Blend factor (0 → vertical ascent, 1 → prograde) based on altitude.
 
     A smooth ramp is used so guidance phase labels and thrust blending
-    remain continuous. Transition range is set by GRAVITY_TURN_START_ALTITUDE
-    and GRAVITY_TURN_TRANSITION_RANGE.
+    remain continuous. 
     """
+    # Smooth sigmoid blend instead of linear ramp
     start = C.GRAVITY_TURN_START_ALTITUDE
-    end = start + C.GRAVITY_TURN_TRANSITION_RANGE
+    width = C.GRAVITY_TURN_TRANSITION_RANGE
+    
+    # Sigmoid function centered at (start + width/2)
+    # 0.0 at < start, 1.0 at > start + width
+    # Simple clamped linear is often robust enough for blending, but let's smooth it
+    
     if altitude <= start:
         return 0.0
-    if altitude >= end:
+    if altitude >= start + width:
         return 1.0
-    return (altitude - start) / (end - start)
+        
+    # Hermite interpolation (smoothstep): 3x^2 - 2x^3
+    x = (altitude - start) / width
+    return x * x * (3.0 - 2.0 * x)
 
 
 # PID state (encapsulated in module-level variables - reset between runs)
@@ -106,90 +127,129 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt:
     altitude = float(np.linalg.norm(r) - C.R_EARTH)
     vertical, east, north = compute_local_frame(r)
 
-    # Desired heading: east
-    heading_dir = east
+    # -------------------------------------------------------------------------
+    # 1. State-Dependent Gamma Command (Smooth)
+    # -------------------------------------------------------------------------
+    gamma_target = gamma_profile_from_altitude(altitude)
+    gamma_target_deg = float(np.degrees(gamma_target))
 
-    # Air-relative velocity and prograde
+    # -------------------------------------------------------------------------
+    # 2. Measurement & PID correction
+    # -------------------------------------------------------------------------
     v_rel = compute_relative_velocity(r, v)
     v_rel_norm = float(np.linalg.norm(v_rel))
-    prograde = heading_dir if v_rel_norm < C.ZERO_TOLERANCE else v_rel / v_rel_norm
-
-    # Blend heading vs prograde (earlier crossover to align with velocity)
-    blend = float(np.clip(v_rel_norm / 400.0, 0.0, 1.0))
-    horizontal_dir = (1.0 - blend) * heading_dir + blend * prograde
-    horizontal_dir = horizontal_dir - np.dot(horizontal_dir, vertical) * vertical
-    hnorm = np.linalg.norm(horizontal_dir)
-    if hnorm < C.ZERO_TOLERANCE:
-        horizontal_dir = heading_dir
-    else:
-        hnorm = np.linalg.norm(horizontal_dir)
-        horizontal_dir /= hnorm
-
-    # Gamma tracking
-    gamma_target = gamma_profile_from_altitude(altitude)
+    
     v_vert = float(np.dot(v_rel, vertical))
     v_horiz_vec = v_rel - v_vert * vertical
     v_horiz = float(np.linalg.norm(v_horiz_vec))
+    
     if v_rel_norm < 1e-3:
         gamma_meas_deg = 90.0
     else:
-        # gamma is angle from horizontal (90 = vertical)
         gamma_meas_deg = float(np.degrees(np.arctan2(v_vert, v_horiz)))
-    gamma_target_deg = float(np.degrees(gamma_target))
 
     error = gamma_target_deg - gamma_meas_deg
     gamma_rate = (gamma_meas_deg - _pid_state['prev_gamma_meas']) / max(dt, 1e-3)
 
-    # Improved PID tuning for gradual gamma profile
-    # Reduced kp to prevent overshoot, increased ki for better tracking
+    # PID Gains
     kp, ki, kd = 0.85, 0.05, 0.12
     _pid_state['gamma_int'] += error * dt
-    _pid_state['gamma_int'] = float(np.clip(_pid_state['gamma_int'], -30.0, 30.0))
+    _pid_state['gamma_int'] = float(np.clip(_pid_state['gamma_int'], -20.0, 20.0))
     gamma_raw = gamma_target_deg + kp * error + ki * _pid_state['gamma_int'] - kd * gamma_rate
-    gamma_cmd = float(np.clip(gamma_raw, gamma_target_deg - 15.0, gamma_target_deg + 15.0))
+    
+    # Compute commanded pitch angle (from vertical)
+    # pitch = 90 - gamma
+    # We command thrust vector direction directly
+    
+    # -------------------------------------------------------------------------
+    # 3. Dynamic Pressure & AoA Limiting (Aero Safety)
+    # -------------------------------------------------------------------------
+    _, _, rho, _ = compute_atmosphere_properties(altitude)
+    q_dyn = 0.5 * rho * v_rel_norm**2
+    
+    # Define max allowed AoA as function of q
+    # At low q (liftoff), large AoA is fine (control authority is needed)
+    # At high q (Max-Q), clamp AoA tighter to prevent breakup
+    
+    # Profile:
+    # 0 kPa -> 20 deg
+    # 15 kPa -> 10 deg
+    # 30+ kPa -> 4 deg
+    if q_dyn < 1000.0:
+        max_aoa_deg = 20.0
+    else:
+        # Linear ramp from 20 deg at 1kPa down to 4 deg at 30kPa
+        max_aoa_deg = float(np.interp(q_dyn, [1000.0, 30000.0], [20.0, 4.0]))
+    
+    # Velocity vector direction (Prograde)
+    if v_rel_norm > 1.0:
+        prograde = v_rel / v_rel_norm
+    else:
+        prograde = vertical
 
-    # gamma floor relaxation - LOWERED to allow thrust to follow velocity
-    # Previous floors were too high (84° at liftoff), causing pitch-velocity mismatch
-    gamma_floor = float(np.interp(
-        altitude,
-        [0.0, 1000.0, 5000.0, 15000.0, 35000.0, 55000.0, 80000.0, 100000.0],
-        [75.0, 65.0, 50.0, 35.0, 22.0, 15.0, 12.0, 10.0],
-    ))
-    gamma_cmd = float(np.clip(gamma_cmd, gamma_floor, 90.0))
+    # Initial Thrust Vector Candidate (Tracking Guidance PID)
+    # We construct it in local frame: 
+    # Gamma command -> Pitch command
+    # Pitch is angle from vertical towards horizontal (downrange)
+    gamma_cmd_clamped = float(np.clip(gamma_raw, 10.0, 90.0))
+    pitch_cmd_rad = np.radians(90.0 - gamma_cmd_clamped)
+    
+    # Construct desired thrust vector in plane defined by Vertical and Velocity (or East)
+    # Ideal heading is generally East or aligned with velocity
+    if v_horiz > 1.0:
+        horiz_axis = v_horiz_vec / v_horiz
+    else:
+        horiz_axis = east # Default to East at liftoff
+        
+    thrust_dir_nominal = np.cos(pitch_cmd_rad) * vertical + np.sin(pitch_cmd_rad) * horiz_axis
+    thrust_dir_nominal /= np.linalg.norm(thrust_dir_nominal)
+    
+    # -------------------------------------------------------------------------
+    # 4. AoA Limiting Logic
+    # -------------------------------------------------------------------------
+    # Calculate angle between Nominal Thrust and Prograde (Velocity Vector)
+    # This is effectively the commanded geometric AoA
+    dot_prod = np.clip(np.dot(thrust_dir_nominal, prograde), -1.0, 1.0)
+    angle_diff = np.arccos(dot_prod) # radians
+    angle_diff_deg = np.degrees(angle_diff)
+    
+    # If commanded AoA exceeds limit, rotate thrust vector towards prograde
+    if angle_diff_deg > max_aoa_deg and v_rel_norm > 20.0:
+        # We need to find a vector that is 'max_aoa_deg' away from prograde,
+        # but in the same plane as (prograde, thrust_dir_nominal)
+        
+        # Rotation axis (perpendicular to plane)
+        rot_axis = np.cross(prograde, thrust_dir_nominal)
+        norm_axis = np.linalg.norm(rot_axis)
+        
+        if norm_axis < 1e-6:
+            # Vectors parallel, no correction needed (or 180 deg opp, effectively crashed)
+            thrust_dir = thrust_dir_nominal
+        else:
+            rot_axis /= norm_axis
+            
+            # Rotate Prograde towards Thrust Dir by Max AoA
+            # We want the vector at angle `max_aoa` from prograde
+            # Rodrigues rotation formula
+            theta = np.radians(max_aoa_deg)
+            # v_rot = v cos t + (k x v) sin t + k (k . v) (1 - cos t)
+            # Here k is rot_axis, v is prograde. k.v is 0.
+            
+            thrust_dir = (prograde * np.cos(theta) + 
+                          np.cross(rot_axis, prograde) * np.sin(theta))
+            
+            # Update gamma_cmd to reflect the clamped vector
+            # This ensures logged gamma_cmd matches what we actually flew
+            # (optional, but good for debugging)
+            cos_p = np.dot(thrust_dir, vertical)
+            gamma_cmd_clamped = np.degrees(np.arcsin(np.clip(cos_p, -1.0, 1.0)))
+            
+    else:
+        thrust_dir = thrust_dir_nominal
+
     _pid_state['prev_gamma_meas'] = gamma_meas_deg
 
-    # Feed-forward pitch from vertical (gamma from horizontal)
-    theta_ff = np.pi/2 - np.radians(gamma_cmd)
-    theta_ff = float(np.clip(theta_ff, 0.0, np.radians(89.0)))
-
-    # Corrective bias: if gamma is too steep, tilt more toward horizontal
-    gamma_err = gamma_cmd - gamma_meas_deg
-    bias_gain = 0.4 if altitude < 60000.0 else 0.65
-    theta_bias = np.radians(-bias_gain * gamma_err)
-    theta = theta_ff + theta_bias
-
-    # Pitch envelope (altitude dependent) - RELAXED to allow thrust to follow velocity
-    # Previous caps were too restrictive, causing 20-30° angle of attack
-    theta_cap = float(np.interp(
-        altitude,
-        [0.0, 500.0, 2000.0, 5000.0, 15000.0, 40000.0, 70000.0],
-        np.radians([25.0, 40.0, 55.0, 70.0, 80.0, 85.0, 88.0])
-    ))
-
-    # Safeguards only for very low altitude near-zero vertical velocity
-    if v_vert < 10.0 and altitude < 1000.0:
-        theta_cap = min(theta_cap, np.radians(30.0))
-    # Do NOT limit pitch at higher altitudes - let it follow the trajectory
-
-    theta = float(np.clip(theta, 0.0, theta_cap))
-
-    thrust_dir = np.cos(theta) * vertical + np.sin(theta) * horizontal_dir
-    heading_proj = np.dot(thrust_dir, heading_dir)
-    if heading_proj < 0.2:
-        thrust_dir = thrust_dir + (0.2 - heading_proj) * heading_dir
-    thrust_dir = thrust_dir / np.linalg.norm(thrust_dir)
-
-    return thrust_dir, gamma_cmd, gamma_meas_deg
+    return thrust_dir, gamma_cmd_clamped, gamma_meas_deg
 
 
 def compute_guidance_output(r: np.ndarray, v: np.ndarray, t: float, m: float) -> GuidanceOutput:
