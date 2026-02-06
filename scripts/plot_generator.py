@@ -73,6 +73,7 @@ class TrajectoryData:
     velocity_rel_vec: np.ndarray
     downrange: np.ndarray
     dynamic_pressure: np.ndarray
+    thrust_force: np.ndarray  # Actual thrust magnitude in N
 
 
 # =============================================================================
@@ -143,6 +144,13 @@ def extract_log_data(log) -> TrajectoryData:
     vel_y = np.array(log.velocity_y)
     vel_z = np.array(log.velocity_z)
     
+    # Thrust actual
+    th_x = np.array(log.inertial_thrust_x)
+    th_y = np.array(log.inertial_thrust_y)
+    th_z = np.array(log.inertial_thrust_z)
+    thrust_vec = np.column_stack((th_x, th_y, th_z))
+    thrust_mag = np.linalg.norm(thrust_vec, axis=1)
+    
     position = np.column_stack((pos_x, pos_y, pos_z))
     velocity_vec = np.column_stack((vel_x, vel_y, vel_z))
     
@@ -208,7 +216,8 @@ def extract_log_data(log) -> TrajectoryData:
         velocity_vec=velocity_vec,
         velocity_rel_vec=velocity_rel_vec,
         downrange=downrange,
-        dynamic_pressure=dynamic_pressure
+        dynamic_pressure=dynamic_pressure,
+        thrust_force=thrust_mag
     )
 
 
@@ -524,7 +533,7 @@ def plot_thrust_vs_gravity(data: TrajectoryData, output_dir: str) -> str:
     """
     fig, ax = plt.subplots()
     
-    thrust_force = np.ones_like(data.time) * C.THRUST_MAGNITUDE / 1e6
+    thrust_force = data.thrust_force / 1e6
     r_center = data.altitude * 1000.0 + C.R_EARTH
     gravity_force = (C.MU_EARTH * data.mass / (r_center**2)) / 1e6
     

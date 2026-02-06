@@ -14,7 +14,7 @@ from .dynamics import state_derivative_vector
 
 
 def rk4_step(state: State, torque: np.ndarray, dt: float, 
-             thrust_on: bool = True, throttle: float = 1.0) -> State:
+             thrust_on: bool = True, throttle: float = 1.0, dry_mass: float = C.DRY_MASS) -> State:
     """
     Perform a single RK4 integration step.
     
@@ -70,14 +70,14 @@ def rk4_step(state: State, torque: np.ndarray, dt: float,
     y_new[6:10] = quaternion_normalize(y_new[6:10])
     
     # Ensure mass doesn't go below dry mass
-    y_new[13] = max(y_new[13], C.DRY_MASS)
+    y_new[13] = max(y_new[13], dry_mass)
     
     # Create new state
     return State.from_vector(y_new, t + dt)
 
 
 def euler_step(state: State, torque: np.ndarray, dt: float,
-               thrust_on: bool = True, throttle: float = 1.0) -> State:
+               thrust_on: bool = True, throttle: float = 1.0, dry_mass: float = C.DRY_MASS) -> State:
     """
     Perform a single Euler integration step.
     
@@ -106,13 +106,13 @@ def euler_step(state: State, torque: np.ndarray, dt: float,
     y_new[6:10] = quaternion_normalize(y_new[6:10])
     
     # Ensure mass doesn't go below dry mass
-    y_new[13] = max(y_new[13], C.DRY_MASS)
+    y_new[13] = max(y_new[13], dry_mass)
     
     return State.from_vector(y_new, t + dt)
 
 
 def integrate(state: State, torque: np.ndarray, dt: float,
-              thrust_on: bool = True, method: str = 'rk4', throttle: float = 1.0) -> State:
+              thrust_on: bool = True, method: str = 'rk4', throttle: float = 1.0, dry_mass: float = C.DRY_MASS) -> State:
     """
     Integrate the state forward by one timestep.
     
@@ -128,9 +128,9 @@ def integrate(state: State, torque: np.ndarray, dt: float,
         New state after integration
     """
     if method == 'rk4':
-        return rk4_step(state, torque, dt, thrust_on, throttle)
+        return rk4_step(state, torque, dt, thrust_on, throttle, dry_mass)
     elif method == 'euler':
-        return euler_step(state, torque, dt, thrust_on, throttle)
+        return euler_step(state, torque, dt, thrust_on, throttle, dry_mass)
 
     else:
         raise ValueError(f"Unknown integration method: {method}")

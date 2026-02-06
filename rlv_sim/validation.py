@@ -65,20 +65,21 @@ def check_position_valid(r: np.ndarray) -> bool:
     return True
 
 
-def check_mass_valid(m: float) -> bool:
+def check_mass_valid(m: float, dry_mass: float = C.DRY_MASS) -> bool:
     """
     Check that mass is physically valid.
     
     Args:
         m: Vehicle mass (kg)
+        dry_mass: Dry mass limit (kg)
         
     Returns:
         True if valid, raises ValidationError otherwise
     """
-    if m < C.DRY_MASS * 0.99:  # Allow small numerical tolerance
+    if m < dry_mass * 0.99:  # Allow small numerical tolerance
         raise ValidationError(
             f"Mass below dry mass: m = {m:.2f} kg, "
-            f"dry mass = {C.DRY_MASS:.2f} kg"
+            f"dry mass = {dry_mass:.2f} kg"
         )
     
     if m > C.INITIAL_MASS * 1.01:  # Mass shouldn't increase
@@ -136,21 +137,19 @@ def check_angular_velocity_reasonable(omega: np.ndarray) -> bool:
     return True
 
 
-def validate_state(state: State, abort_on_error: bool = True) -> Tuple[bool, Optional[str]]:
+def validate_state(state: State, abort_on_error: bool = True, dry_mass: float = C.DRY_MASS) -> Tuple[bool, Optional[str]]:
     """
     Perform all validation checks on a state.
     
     Args:
         state: State to validate
         abort_on_error: If True, raise exception on first error
-        
-    Returns:
-        (is_valid, error_message) tuple
+        dry_mass: Dry mass lower bound
     """
     try:
         check_quaternion_norm(state.q)
         check_position_valid(state.r)
-        check_mass_valid(state.m)
+        check_mass_valid(state.m, dry_mass)
         check_velocity_reasonable(state.v)
         check_angular_velocity_reasonable(state.omega)
         return True, None

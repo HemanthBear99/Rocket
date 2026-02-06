@@ -285,3 +285,137 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray, t: float, m: float) ->
         'v_rel': v_rel,
         'v_rel_mag': v_rel_norm
     }
+
+
+def compute_coast_guidance(r: np.ndarray, v: np.ndarray, t: float, m: float) -> GuidanceOutput:
+    """
+    Guidance logic for Phase II (Coast).
+    
+    - Thrust: OFF
+    - Attitude: Prograde (aligned with relative velocity)
+    """
+    altitude = float(np.linalg.norm(r) - C.R_EARTH)
+    v_rel = compute_relative_velocity(r, v)
+    v_rel_norm = float(np.linalg.norm(v_rel))
+    
+    # 1. Orientation: Align with Velocity Vector (Prograde)
+    if v_rel_norm > 1.0:
+        desired_dir = v_rel / v_rel_norm
+    else:
+        desired_dir = compute_local_vertical(r)
+        
+    vertical = compute_local_vertical(r)
+    cos_pitch = np.clip(np.dot(vertical, desired_dir), -1.0, 1.0)
+    pitch_angle = float(np.arccos(cos_pitch))
+    
+    # Gamma calculation for logging
+    v_vert = float(np.dot(v_rel, vertical))
+    v_horiz_vec = v_rel - v_vert * vertical
+    v_horiz = float(np.linalg.norm(v_horiz_vec))
+    gamma_actual = float(np.degrees(np.arctan2(v_vert, v_horiz)))
+
+    return {
+        'thrust_direction': desired_dir,
+        'phase': "COAST_PHASE",
+        'thrust_on': False,
+        'pitch_angle': pitch_angle,
+        'gamma_angle': np.radians(gamma_actual),
+        'gamma_command_deg': gamma_actual, # We "command" what we have since we follow velocity
+        'gamma_measured_deg': gamma_actual,
+        'velocity_tilt_deg': gamma_actual, 
+        'blend_alpha': 1.0, # Pure prograde
+        'altitude': altitude,
+        'velocity': float(np.linalg.norm(v)),
+        'local_vertical': vertical,
+        'local_horizontal': compute_local_horizontal(r, v),
+        'prograde': desired_dir,
+        'throttle': 0.0,
+        'v_rel': v_rel,
+        'v_rel_mag': v_rel_norm
+    }
+
+
+def compute_booster_guidance(r: np.ndarray, v: np.ndarray, t: float, m: float, phase: str) -> GuidanceOutput:
+    """
+    Guidance logic for Booster Recovery (Phase III-B).
+    
+    Phases:
+    - FLIP: Reorient 180 deg to point engines retrograde.
+    - BOOSTBACK: Fire engines to cancel downrange velocity.
+    - COAST: Ballistic return.
+    - ENTRY: High-alpha for drag.
+    - LANDING: Vertical descent.
+    """
+    altitude = float(np.linalg.norm(r) - C.R_EARTH)
+    
+    # Defaults
+    thrust_on = False
+    throttle = 0.0
+    desired_dir = compute_local_vertical(r) # Default Up
+    
+    v_rel = compute_relative_velocity(r, v)
+    v_rel_norm = float(np.linalg.norm(v_rel))
+    
+    prograde = v_rel / v_rel_norm if v_rel_norm > 1.0 else compute_local_vertical(r)
+    retrograde = -prograde
+    
+    # --- PHASE LOGIC ---
+    if phase == "BOOSTER_FLIP":
+        # Target Retrograde
+        desired_dir = retrograde
+        thrust_on = False # Coasting flip
+        
+    elif phase == "BOOSTER_BOOSTBACK":
+        # Target Retrograde + Throttle Up
+        desired_dir = retrograde
+        thrust_on = True
+        throttle = 1.0 # Max power for boostback
+        
+    elif phase == "BOOSTER_COAST":
+        # Engines First (Retrograde) for entry prep
+        desired_dir = retrograde
+        thrust_on = False
+        
+    elif phase == "BOOSTER_ENTRY":
+        # Engines First (Retrograde)
+        desired_dir = retrograde
+        thrust_on = False
+        
+    elif phase == "BOOSTER_LANDING":
+        # Retrograde (Vertical at this point) + Landing Burn
+        desired_dir = retrograde
+        thrust_on = True # Landing burn
+        # Simple suicide burn logic placeholder:
+        # If impact time < burn time, throttle = 1.0
+        # For now, just simplistic braking
+        if altitude < 5000:
+             throttle = 1.0
+        else:
+             throttle = 0.0
+             thrust_on = False
+
+    # Common Outputs
+    vertical = compute_local_vertical(r)
+    cos_pitch = np.clip(np.dot(vertical, desired_dir), -1.0, 1.0)
+    pitch_angle = float(np.arccos(cos_pitch))
+    
+    return {
+        'thrust_direction': desired_dir,
+        'phase': phase,
+        'thrust_on': thrust_on,
+        'pitch_angle': pitch_angle,
+        'gamma_angle': 0.0, # Placeholder
+        'gamma_command_deg': 0.0,
+        'gamma_measured_deg': 0.0,
+        'velocity_tilt_deg': 0.0,
+        'blend_alpha': 0.0,
+        'altitude': altitude,
+        'velocity': float(np.linalg.norm(v)),
+        'local_vertical': vertical,
+        'local_horizontal': compute_local_horizontal(r, v),
+        'prograde': prograde,
+        'throttle': throttle,
+        'v_rel': v_rel,
+        'v_rel_mag': v_rel_norm
+    }
+

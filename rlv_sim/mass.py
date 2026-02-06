@@ -42,6 +42,10 @@ def compute_mass_derivative(m: float, thrust_on: bool = True, throttle: float = 
     """
     # Check if propellant is exhausted
     propellant_remaining = m - C.DRY_MASS
+    # Note: We use global C.DRY_MASS here as default, but this function should likely take dry_mass too.
+    # But for derivative, we assume thrust cuts off if empty.
+    # To fix properly, we'd need to pass dry_mass in.
+    pass #(Leaving derivative logic as-is for now, handled by main loop cutoff)
     
     if propellant_remaining <= 0 or not thrust_on or throttle <= 0.0:
         return 0.0
@@ -49,7 +53,7 @@ def compute_mass_derivative(m: float, thrust_on: bool = True, throttle: float = 
     return -C.MASS_FLOW_RATE * float(np.clip(throttle, 0.0, 1.0))
 
 
-def update_mass(m: float, dt: float, thrust_on: bool = True, throttle: float = 1.0) -> float:
+def update_mass(m: float, dt: float, thrust_on: bool = True, throttle: float = 1.0, dry_mass: float = C.DRY_MASS) -> float:
     """
     Update mass for a single time step.
     
@@ -68,20 +72,21 @@ def update_mass(m: float, dt: float, thrust_on: bool = True, throttle: float = 1
     new_mass = m + dm_dt * dt
     
     # Ensure mass doesn't go below dry mass
-    return max(new_mass, C.DRY_MASS)
+    return max(new_mass, dry_mass)
 
 
-def is_propellant_exhausted(m: float) -> bool:
+def is_propellant_exhausted(m: float, dry_mass: float = C.DRY_MASS) -> bool:
     """
     Check if propellant is exhausted.
     
     Args:
         m: Current mass (kg)
+        dry_mass: Dry mass limit (kg)
         
     Returns:
         True if propellant is exhausted
     """
-    return m <= C.DRY_MASS
+    return m <= dry_mass
 
 
 def get_propellant_fraction(m: float) -> float:

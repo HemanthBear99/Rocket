@@ -18,7 +18,7 @@ import time
 import os
 import csv
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -30,8 +30,9 @@ from .integrators import integrate
 from .validation import validate_state, ValidationError, compute_total_energy, validate_energy_conservation
 from .mass import is_propellant_exhausted
 from .frames import rotate_vector_by_quaternion
-from .guidance import compute_local_vertical
+from .guidance import compute_local_vertical, compute_coast_guidance, compute_booster_guidance
 from .actuator import ActuatorState, update_actuator
+from .mission_manager import MissionManager, MissionPhase
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -61,6 +62,9 @@ class SimulationLog:
     position_x: List[float] = field(default_factory=list)
     position_y: List[float] = field(default_factory=list)
     position_z: List[float] = field(default_factory=list)
+    omega_x: List[float] = field(default_factory=list)
+    omega_y: List[float] = field(default_factory=list)
+    omega_z: List[float] = field(default_factory=list)
     quaternion_norm: List[float] = field(default_factory=list)
     actual_pitch_angle: List[float] = field(default_factory=list)
     gamma_command_deg: List[float] = field(default_factory=list)
@@ -116,6 +120,9 @@ class SimulationLog:
         self.position_x.append(state.r[0])
         self.position_y.append(state.r[1])
         self.position_z.append(state.r[2])
+        self.omega_x.append(state.omega[0])
+        self.omega_y.append(state.omega[1])
+        self.omega_z.append(state.omega[2])
         self.quaternion_norm.append(np.linalg.norm(state.q))
         # Downrange ground distance (great-circle) from launch point
         r_hat = state.r / np.linalg.norm(state.r)
@@ -249,32 +256,42 @@ class SimulationLog:
                 writer.writerow(row)
 
 
-def check_termination(state: State, max_time: float, meco_time: float = None,
-                      coast_to_apogee: bool = True) -> tuple:
+def check_termination(state: State, max_time: float, mission_mgr: MissionManager = None) -> tuple:
     """
     Check if simulation should terminate.
     
     Args:
         state: Current state
         max_time: Maximum allowed simulation time (s)
-        meco_time: Time when propellant was exhausted (for coast logic)
-        coast_to_apogee: If True, allow coasting after MECO until apogee
+        mission_mgr: Mission Manager instance
         
     Returns:
         (should_terminate, reason) tuple
     """
-    # Check propellant exhaustion
-    if is_propellant_exhausted(state.m):
-        if not coast_to_apogee:
-            return True, "MECO - Propellant exhausted"
-        # During coast, stop at apogee (vertical velocity <= 0) or after 15s of coast
-        if meco_time is None:
-            meco_time = state.t
+    
+    # Check if Mission Manager says we are done (Apogee Reached)
+    # Passed in as argument or check state? 
+    # For now, let's keep the old logic active as a failsafe, but verify MissionPhase.
+    
+    pass # Fall through to new logic
+    
+    # Check propellant exhaustion (Legacy check, handled by MissionManager now but good for safety)
+    # if is_propellant_exhausted(state.m):
+    #     return True, "MECO - Propellant exhausted (Legacy Check)"
+    pass
+    
+    # Coast termination at Apogee
+    # If we are in COAST/APOGEE phase, check for descent
+    # For BOOSTER, we expect to descend, so ignore this check.
+    if mission_mgr.vehicle_type != "booster":
         from .guidance import compute_local_vertical
         vertical = compute_local_vertical(state.r)
         v_vert = float(np.dot(state.v, vertical))
-        if v_vert <= 0.0 or (state.t - meco_time) > 15.0:
-            return True, "Coast complete after MECO"
+        
+        # Stop if we are falling back down (Apogee reached)
+        # We add a 15s buffer after MECO to ensure we don't trigger immediately if v_vert ~ 0 at liftoff (impossible but safe)
+        if state.t > 100.0 and v_vert <= 0.0:
+                return True, "Apogee Reached (v_vert <= 0)"
 
     # Target energy/velocity cutoff
     if state.m > C.DRY_MASS and state.altitude >= C.TARGET_ALTITUDE and state.speed >= C.TARGET_SPEED:
@@ -291,7 +308,7 @@ def check_termination(state: State, max_time: float, meco_time: float = None,
     return False, None
 
 
-def simulation_step(state: State, actuator: ActuatorState, dt: float) -> tuple:
+def simulation_step(state: State, actuator: ActuatorState, mission_mgr: MissionManager, dt: float, dry_mass: float = C.DRY_MASS) -> tuple:
     """
     Execute one complete simulation timestep.
     
@@ -313,7 +330,19 @@ def simulation_step(state: State, actuator: ActuatorState, dt: float) -> tuple:
         (new_state, guidance_output, control_output) tuple
     """
     # Step 1: Guidance
-    guidance = compute_guidance_output(state.r, state.v, state.t, state.m)
+    phase = mission_mgr.get_phase()
+    
+    if phase == MissionPhase.ASCENT:
+        guidance = compute_guidance_output(state.r, state.v, state.t, state.m)
+    elif phase == MissionPhase.COAST or phase == MissionPhase.STAGE_SEPARATION:
+        guidance = compute_coast_guidance(state.r, state.v, state.t, state.m)
+    elif phase in [MissionPhase.BOOSTER_FLIP, MissionPhase.BOOSTER_BOOSTBACK, MissionPhase.BOOSTER_COAST, MissionPhase.BOOSTER_ENTRY, MissionPhase.BOOSTER_LANDING]:
+        guidance = compute_booster_guidance(state.r, state.v, state.t, state.m, phase.name)
+    else:
+        # Default fallback (e.g. Apogee reached)
+        guidance = compute_coast_guidance(state.r, state.v, state.t, state.m)
+        guidance['phase'] = "APOGEE_HOLD"
+
     desired_dir = guidance['thrust_direction']
     actuator = update_actuator(actuator, desired_dir, dt)
     thrust_dir_cmd = actuator.thrust_dir
@@ -328,21 +357,25 @@ def simulation_step(state: State, actuator: ActuatorState, dt: float) -> tuple:
         state, control['torque'], dt,
         thrust_on=guidance['thrust_on'],
         method='rk4',
-        throttle=guidance.get('throttle', 1.0)
+        throttle=guidance.get('throttle', 1.0),
+        dry_mass=dry_mass
     )
     
     return new_state, guidance, control, actuator
 
 
-def run_simulation(dt: float = None, max_time: float = None,
-                   verbose: bool = True, coast_to_apogee: bool = True) -> tuple:
+def run_simulation(initial_state: Optional[State] = None, dt: float = None, max_time: float = None,
+                   verbose: bool = True, coast_to_apogee: bool = True, vehicle_type: str = "ascent") -> tuple:
     """
     Run the complete Phase-I ascent simulation.
     
     Args:
+        initial_state: Optional starting state. If None, starts from liftoff default.
         dt: Time step (default from constants)
         max_time: Maximum simulation time (default from constants)
         verbose: Print progress updates
+        coast_to_apogee: If True, allow coasting after MECO until apogee
+        vehicle_type: "ascent", "orbiter", or "booster" to determine mission logic
         
     Returns:
         (final_state, log, termination_reason) tuple
@@ -352,10 +385,15 @@ def run_simulation(dt: float = None, max_time: float = None,
     if max_time is None:
         max_time = C.MAX_TIME
     
-    # Initialize
-    state = create_initial_state()
+    # Initialize state
+    if initial_state is not None:
+        state = initial_state.copy()
+    else:
+        state = create_initial_state()
+        
     log = SimulationLog()
     actuator = ActuatorState(thrust_dir=compute_local_vertical(state.r))
+    mission_mgr = MissionManager(vehicle_type=vehicle_type)
     
     # [FIX #3] Initialize energy tracking for conservation check
     E_prev = compute_total_energy(state.r, state.v, state.m)
@@ -376,23 +414,31 @@ def run_simulation(dt: float = None, max_time: float = None,
     last_print_time = 0
     meco_time = None
     
+    # Determine dry mass based on vehicle type
+    if vehicle_type == "booster":
+        current_dry_mass = C.STAGE1_DRY_MASS
+    elif vehicle_type == "orbiter":
+        current_dry_mass = 20000.0  # Estimate (Stage 2 Dry + Payload) - Constant not defined
+    else:
+        current_dry_mass = C.DRY_MASS
+    
     # Main simulation loop
     while True:
         # Record MECO time (first dry-mass detection)
-        if meco_time is None and is_propellant_exhausted(state.m):
+        if meco_time is None and is_propellant_exhausted(state.m, current_dry_mass):
             meco_time = state.t
 
         # Check termination
-        terminate, reason = check_termination(state, max_time, meco_time, coast_to_apogee)
-        if terminate:
+        should_terminate, reason = check_termination(state, max_time, mission_mgr)
+        if should_terminate:
             logger.info(f"Simulation terminated: {reason}")
             if verbose:
                 print(f"\nTermination: {reason}")
-            break
+            return state, log, reason
         
         # Validate state
         try:
-            validate_state(state)
+            validate_state(state, dry_mass=current_dry_mass)
         except ValidationError as e:
             logger.error(f"Validation failed: {e}")
             if verbose:
@@ -400,8 +446,11 @@ def run_simulation(dt: float = None, max_time: float = None,
             reason = f"Validation failure: {e}"
             break
         
+        # Update Mission Manager
+        mission_mgr.update(state, dt)
+        
         # Execute timestep
-        state, guidance, control, actuator = simulation_step(state, actuator, dt)
+        state, guidance, control, actuator = simulation_step(state, actuator, mission_mgr, dt, dry_mass=current_dry_mass)
 
         # Abort if gamma tracking diverges badly after initial 5s
         # Optional gamma divergence check (relaxed)
