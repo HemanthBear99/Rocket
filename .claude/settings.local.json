@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(del:*)",
+      "Bash(if exist \"D:\\\\rocket\\\\Rocket\\\\tests\\\\golden_meco_checksum.npy\" del \"D:\\\\rocket\\\\Rocket\\\\tests\\\\golden_meco_checksum.npy\")",
+      "Bash(python:*)",
+      "Bash(PYTHONIOENCODING=utf-8 python:*)",
+      "Bash(cd:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)"
+    ]
+  }
+}

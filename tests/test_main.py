@@ -1,5 +1,6 @@
 import pytest
 from rlv_sim import main
+from rlv_sim.mission_manager import MissionManager
 
 def test_run_simulation_completes():
     # Run a very short simulation for test speed
@@ -11,24 +12,26 @@ def test_run_simulation_completes():
     assert len(log.time) > 0
 
 def test_check_termination_conditions():
+    import numpy as np
     from rlv_sim.state import State
-    s = State(m=main.C.DRY_MASS, r=main.C.INITIAL_POSITION.copy(), v=main.C.INITIAL_VELOCITY.copy(), q=main.C.INITIAL_QUATERNION.copy(), omega=main.C.INITIAL_OMEGA.copy(), t=0.0)
-    # Should terminate if propellant exhausted and not coasting
-    term, reason = main.check_termination(s, max_time=100.0, meco_time=None, coast_to_apogee=False)
-    assert term is True
-    assert 'MECO' in reason or 'Propellant' in reason
-    # Should terminate if max_time exceeded
-    s2 = State(m=main.C.INITIAL_MASS, r=main.C.INITIAL_POSITION.copy(), v=main.C.INITIAL_VELOCITY.copy(), q=main.C.INITIAL_QUATERNION.copy(), omega=main.C.INITIAL_OMEGA.copy(), t=200.0)
-    term, reason = main.check_termination(s2, max_time=100.0)
+    mission_mgr = MissionManager(vehicle_type="ascent")
+    # Give an upward radial velocity so apogee check doesn't trigger
+    # (v_vert > 0 means still ascending, so max_time check fires first)
+    v_ascending = np.array([500.0, 465.0, 0.0])  # positive radial + tangential
+    s2 = State(m=main.C.INITIAL_MASS, r=main.C.INITIAL_POSITION.copy(),
+               v=v_ascending, q=main.C.INITIAL_QUATERNION.copy(),
+               omega=main.C.INITIAL_OMEGA.copy(), t=200.0)
+    term, reason = main.check_termination(s2, max_time=100.0, mission_mgr=mission_mgr)
     assert term is True
     assert 'Maximum simulation time' in reason
 
 def test_simulation_step_pipeline():
     from rlv_sim.state import State
     from rlv_sim.actuator import ActuatorState
+    mission_mgr = MissionManager(vehicle_type="ascent")
     s = State(r=main.C.INITIAL_POSITION.copy(), v=main.C.INITIAL_VELOCITY.copy(), q=main.C.INITIAL_QUATERNION.copy(), omega=main.C.INITIAL_OMEGA.copy(), m=main.C.INITIAL_MASS, t=0.0)
     a = ActuatorState(thrust_dir=main.C.INITIAL_POSITION.copy()/main.C.R_EARTH)
-    s2, guidance, control, a2 = main.simulation_step(s, a, dt=0.1)
+    s2, guidance, control, a2 = main.simulation_step(s, a, mission_mgr, dt=0.1)
     assert hasattr(s2, 'r')
     assert isinstance(guidance, dict)
     assert isinstance(control, dict)

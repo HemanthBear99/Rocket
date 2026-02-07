@@ -37,12 +37,22 @@ STAGE1_PROPELLANT_MASS = 390000.0  # kg
 STAGE1_WET_MASS = 420000.0  # kg
 
 # Stage 2 Mass Properties (Table in A.11)
-STAGE2_MASS = 120000.0  # kg (constant during Phase I)
+STAGE2_MASS = 120000.0  # kg (total S2 wet mass, constant during Phase I)
+STAGE2_DRY_MASS = 17000.0     # kg (S2 structure + avionics + payload adapter)
+STAGE2_PROPELLANT_MASS = 103000.0  # kg (LOX/RP-1)
+STAGE2_WET_MASS = STAGE2_DRY_MASS + STAGE2_PROPELLANT_MASS  # 120,000 kg (verification)
 
 # Stacked Vehicle Mass (A.13)
-DRY_MASS = STAGE1_DRY_MASS + STAGE2_MASS  # 150,000 kg at MECO
-PROPELLANT_MASS = STAGE1_PROPELLANT_MASS  # 390,000 kg
+DRY_MASS = STAGE1_DRY_MASS + STAGE2_MASS  # 150,000 kg at S1 MECO
+PROPELLANT_MASS = STAGE1_PROPELLANT_MASS  # 390,000 kg (S1 only)
 INITIAL_MASS = STAGE1_WET_MASS + STAGE2_MASS  # 540,000 kg total
+
+# S1 Fuel Reserve for Booster Recovery (RTLS)
+# Budget: boostback ~1200 m/s + entry ~200 m/s + landing ~400 m/s = 1800 m/s total
+# Tsiolkovsky: m_fuel = m_dry*(exp(dv/(Isp*g0))-1) = 30000*(exp(1800/2766)-1) ~= 27,400 kg
+# Use 30,000 kg (~7.7% of S1 prop) for margin. Verified dV = 1917 m/s.
+STAGE1_LANDING_FUEL_RESERVE = 30000.0  # kg reserved for booster landing
+STAGE1_ASCENT_PROPELLANT = STAGE1_PROPELLANT_MASS - STAGE1_LANDING_FUEL_RESERVE  # 360,000 kg burned during ascent
 
 # Mass flow rate: mdot = T / (Isp * g0)
 # Computed after propulsion parameters are defined
@@ -110,19 +120,36 @@ MAX_DYNAMIC_PRESSURE = 35000.0  # Pa (Max-Q Limit)
 
 # Guidance & Control Gains
 # -----------------------------------------------------------------------------
-# PD Controller Design for Attitude Control
-# Natural frequency: ωn ≈ 0.1 rad/s (10s settling time)
-# Damping ratio: ζ ≈ 0.7 (critically damped response)
-# For I ≈ 5.36e7 kg·m² (full propellant):
-#   Kp = I * ωn² = 5.36e7 * 0.01 ≈ 5.36e5 (scaled up for faster response)
-#   Kd = 2 * ζ * ωn * I = 2 * 0.7 * 0.1 * 5.36e7 ≈ 7.5e6
-# Values below are empirically tuned for stability with max error ~3.8°
+# PD Controller Design per Document Section 17.6:
+#
+#   τ_cmd = -Kp · q_ev - Kd · ω_e
+#
+# where q_ev is the vector part of the error quaternion.
+# For small angles: q_ev ≈ sin(θ/2)·axis ≈ (θ/2)·axis
+# So the linearized torque is: τ ≈ -Kp·(θ/2)·axis - Kd·ω
+# The linearized dynamics: I·θ̈ + Kd·θ̇ + (Kp/2)·θ = 0
+#
+# Design basis (second-order with q_ev error signal):
+#   Natural frequency:  ωn = sqrt(Kp / (2·I))
+#   Damping ratio:      ζ  = Kd / (2 · sqrt(Kp·I/2))
+#
+# For I_full = 5.36e7 kg·m² (full propellant, worst case):
+#   Kp = 1.2e8  →  ωn = sqrt(1.2e8 / (2*5.36e7)) = 1.058 rad/s  (~1s response)
+#   Kd = 2·ζ·sqrt(Kp·I/2) = 2·0.7·sqrt(1.2e8*5.36e7/2) = 7.94e7
+#
+# For I_empty = 1.2e7 kg·m² (MECO, dry vehicle):
+#   ωn = sqrt(1.2e8 / (2*1.2e7)) = 2.236 rad/s  (faster response — good)
+#   ζ  = 7.94e7 / (2·sqrt(1.2e8*1.2e7/2)) = 1.48  (overdamped — stable)
+#
+# System is critically-damped at launch and overdamped at MECO.
 
-KP_ATTITUDE = 6.0e7  # Proportional gain (N·m/rad)
-KD_ATTITUDE = 4.5e7  # Derivative gain (N·m·s/rad)
+KP_ATTITUDE = 1.2e8   # Proportional gain (N·m) — acts on q_ev (Document §17.6)
+KD_ATTITUDE = 7.94e7   # Derivative gain (N·m·s/rad) — ζ=0.7 at full mass
 
 # Maximum control torque (N·m)
-MAX_TORQUE = 2.0e7
+# Physical basis: 7.6 MN thrust × 3.7m diameter × ~0.7 gimbal leverage ≈ 2e7 N·m
+# Increased to accommodate higher Kd without excessive saturation
+MAX_TORQUE = 3.0e7
 
 # Pitchover Maneuver Parameters
 PITCHOVER_START_ALTITUDE = 0.0   # Start pitchover immediately at liftoff (m)
@@ -147,7 +174,9 @@ MIN_VELOCITY_FOR_TURN = 50.0  # m/s
 DT = 0.005
 
 # Maximum simulation time (s)
-MAX_TIME = 300.0
+# Must be long enough for: S1 ascent (~142s) + coast to apogee (~250s)
+# + S2 burn (~548s) = ~940s total.  Allow margin.
+MAX_TIME = 1200.0
 
 # Target MECO criteria (Phase I)
 TARGET_ALTITUDE = 110000.0  # m
@@ -214,9 +243,35 @@ CD_VALUES = np.array([0.42, 0.42, 0.75, 0.65, 0.50, 0.35, 0.25, 0.20])
 # Lift slope vs Mach (per rad)
 CL_ALPHA_VALUES = np.array([2.0, 2.0, 1.8, 1.6, 1.2, 0.8, 0.6, 0.4])
 
-# Propulsion - Vacuum Isp
-ISP_VAC = 311.0  # Vacuum specific impulse (s)
+# Propulsion - Vacuum Isp (Stage 1)
+ISP_VAC = 311.0  # S1 Vacuum specific impulse (s)
 # ISP (Sea Level) is defined above as 282.0
+
+# =============================================================================
+# STAGE 2 PROPULSION PARAMETERS
+# =============================================================================
+# LOX/RP-1 vacuum-optimized upper stage engine (Merlin Vacuum class)
+#
+# Delta-V budget:
+#   v_circular(200km) = sqrt(mu/(R_E+200km)) = 7788 m/s
+#   v_at_separation ~= 2200 m/s (from S1 ascent gravity turn)
+#   Required dv ~= 5600 m/s + ~900 m/s gravity losses = 6500 m/s
+#   Available dv = 348 * 9.81 * ln(120000/17000) = 6669 m/s
+#   Margin: ~170 m/s (2.5%)
+#
+# Engine specs (Merlin Vacuum class):
+#   Thrust: 981 kN (vacuum)
+#   Isp: 348 s (vacuum, LOX/RP-1 with high-expansion nozzle)
+#   Mass flow: 981000 / (348 * 9.81) = 287.3 kg/s
+#   Burn time: 103000 / 287.3 = 358.6 s
+#
+STAGE2_THRUST = 981000.0       # N (981 kN vacuum thrust) — single Merlin Vacuum class
+STAGE2_ISP_VAC = 348.0         # s (LOX/RP-1 vacuum Isp, Merlin Vacuum class)
+STAGE2_MASS_FLOW_RATE = STAGE2_THRUST / (STAGE2_ISP_VAC * G0)  # ~287.3 kg/s
+STAGE2_BURN_TIME = STAGE2_PROPELLANT_MASS / STAGE2_MASS_FLOW_RATE  # ~358.6 s
+
+# Target orbit
+TARGET_ORBIT_ALTITUDE = 400000.0  # m (400 km LEO)
 
 # =============================================================================
 # NUMERICAL TOLERANCES

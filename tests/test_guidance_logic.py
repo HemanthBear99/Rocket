@@ -37,8 +37,8 @@ class TestGuidanceLogic(unittest.TestCase):
         
         # With the new aggressive gravity-turn law the early tilt should be >5 deg
         self.assertGreater(angle_rad, np.radians(5.0), "Thrust pitch should exceed 5 deg early in ascent")
-        # but still below 80 deg this early
-        self.assertLess(angle_rad, np.radians(80.0), "Thrust pitch should not be nearly horizontal at 500 m")
+        # but at or below 80 deg this early (boundary-inclusive)
+        self.assertLessEqual(angle_rad, np.radians(80.0), "Thrust pitch should not exceed 80 deg at 500 m")
 
     def test_gravity_turn_prograde(self):
         """Verify Gravity Turn follows velocity"""

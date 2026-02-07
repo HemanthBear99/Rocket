@@ -24,13 +24,13 @@ import numpy as np
 
 from . import constants as C
 from .state import State, create_initial_state
-from .guidance import compute_guidance_output
+from .guidance import compute_guidance_output, reset_guidance
 from .control import compute_control_output
 from .integrators import integrate
 from .validation import validate_state, ValidationError, compute_total_energy, validate_energy_conservation
 from .mass import is_propellant_exhausted
 from .frames import rotate_vector_by_quaternion
-from .guidance import compute_local_vertical, compute_coast_guidance, compute_booster_guidance
+from .guidance import compute_local_vertical, compute_coast_guidance, compute_booster_guidance, compute_orbit_insertion_guidance
 from .actuator import ActuatorState, update_actuator
 from .mission_manager import MissionManager, MissionPhase
 
@@ -188,7 +188,11 @@ class SimulationLog:
         # Compute ACTUAL inertial thrust vector (N) from vehicle attitude, not commanded
         throttle_val = float(guidance.get('throttle', 1.0))
         thrust_on_val = bool(guidance.get('thrust_on', True))
-        thrust_mag = C.THRUST_MAGNITUDE if thrust_on_val else 0.0
+        # Determine thrust magnitude based on phase (S1 vs S2 engine)
+        phase_str = guidance.get('phase', '')
+        is_s2_phase = phase_str in ('ORBIT_INSERTION', 'COAST_PHASE') and state.m < C.STAGE2_WET_MASS * 1.1
+        thrust_mag_nominal = C.STAGE2_THRUST if is_s2_phase else C.THRUST_MAGNITUDE
+        thrust_mag = thrust_mag_nominal if thrust_on_val else 0.0
         # Get actual thrust direction from vehicle quaternion
         actual_thrust_dir = rotate_vector_by_quaternion(C.BODY_Z_AXIS, state.q)
         thrust_vec = actual_thrust_dir * (throttle_val * thrust_mag)
@@ -259,59 +263,63 @@ class SimulationLog:
 def check_termination(state: State, max_time: float, mission_mgr: MissionManager = None) -> tuple:
     """
     Check if simulation should terminate.
-    
+
+    Termination criteria depend on vehicle type and mission phase:
+    - ascent: Stops at apogee (legacy single-stage sim)
+    - orbiter: Stops when orbit is achieved or S2 propellant exhausted
+    - booster: Stops at touchdown
+
     Args:
         state: Current state
         max_time: Maximum allowed simulation time (s)
         mission_mgr: Mission Manager instance
-        
+
     Returns:
         (should_terminate, reason) tuple
     """
-    
-    # Check if Mission Manager says we are done (Apogee Reached)
-    # Passed in as argument or check state? 
-    # For now, let's keep the old logic active as a failsafe, but verify MissionPhase.
-    
-    pass # Fall through to new logic
-    
-    # Check propellant exhaustion (Legacy check, handled by MissionManager now but good for safety)
-    # if is_propellant_exhausted(state.m):
-    #     return True, "MECO - Propellant exhausted (Legacy Check)"
-    pass
-    
-    # Coast termination at Apogee
-    # If we are in COAST/APOGEE phase, check for descent
-    # For BOOSTER, we expect to descend, so ignore this check.
-    if mission_mgr.vehicle_type != "booster":
-        from .guidance import compute_local_vertical
+    phase = mission_mgr.get_phase()
+
+    # ===== ORBIT ACHIEVED (orbiter vehicle) =====
+    if phase == MissionPhase.ORBIT_ACHIEVED:
+        return True, "ORBIT ACHIEVED - Mission Complete"
+
+    # ===== BOOSTER LANDING =====
+    if mission_mgr.vehicle_type == "booster":
+        if phase == MissionPhase.BOOSTER_LANDING and state.altitude <= 0.0:
+            v_touchdown = float(np.linalg.norm(state.v))
+            if v_touchdown < 5.0:
+                return True, f"LANDING SUCCESS - Touchdown at {v_touchdown:.2f} m/s"
+            elif v_touchdown < 50.0:
+                return True, f"HARD LANDING - Touchdown at {v_touchdown:.1f} m/s"
+            else:
+                return True, f"CRASH LANDING - Impact at {v_touchdown:.0f} m/s"
+
+    # ===== ASCENT-ONLY VEHICLE: stop at apogee (legacy mode) =====
+    # "ascent" runs the full mission including orbit insertion
+    # "ascent_only" is the legacy mode that stops at apogee
+    if mission_mgr.vehicle_type == "ascent_only":
         vertical = compute_local_vertical(state.r)
         v_vert = float(np.dot(state.v, vertical))
-        
         # Stop if we are falling back down (Apogee reached)
-        # We add a 15s buffer after MECO to ensure we don't trigger immediately if v_vert ~ 0 at liftoff (impossible but safe)
         if state.t > 100.0 and v_vert <= 0.0:
-                return True, "Apogee Reached (v_vert <= 0)"
+            return True, "Apogee Reached (v_vert <= 0)"
 
-    # Target energy/velocity cutoff
-    if state.m > C.DRY_MASS and state.altitude >= C.TARGET_ALTITUDE and state.speed >= C.TARGET_SPEED:
-        return True, "MECO - Target conditions achieved"
-    
-    # Check maximum time
+    # ===== MAX TIME =====
     if state.t >= max_time:
         return True, "Maximum simulation time reached"
-    
-    # Check if crashed (altitude below tolerance)
+
+    # ===== CRASH =====
     if state.altitude < C.CRASH_ALTITUDE_TOLERANCE:
         return True, "CRASH - Below Earth's surface"
-    
+
     return False, None
 
 
-def simulation_step(state: State, actuator: ActuatorState, mission_mgr: MissionManager, dt: float, dry_mass: float = C.DRY_MASS) -> tuple:
+def simulation_step(state: State, actuator: ActuatorState, mission_mgr: MissionManager,
+                    dt: float, dry_mass: float = C.DRY_MASS, stage: int = 1) -> tuple:
     """
     Execute one complete simulation timestep.
-    
+
     Execution order (as per spec):
     1. Guidance → thrust direction
     2. Attitude command → quaternion
@@ -321,54 +329,72 @@ def simulation_step(state: State, actuator: ActuatorState, mission_mgr: MissionM
     6. (Quaternion integration in integrator)
     7. (Translational dynamics in integrator)
     8. (Mass update in integrator)
-    
+
     Args:
         state: Current state
+        actuator: Gimbal actuator state
+        mission_mgr: Mission phase manager
         dt: Time step
-        
+        dry_mass: Current dry mass limit
+        stage: Engine stage (1 = S1, 2 = S2)
+
     Returns:
-        (new_state, guidance_output, control_output) tuple
+        (new_state, guidance_output, control_output, actuator) tuple
     """
     # Step 1: Guidance
     phase = mission_mgr.get_phase()
-    
+
     if phase == MissionPhase.ASCENT:
-        guidance = compute_guidance_output(state.r, state.v, state.t, state.m)
-    elif phase == MissionPhase.COAST or phase == MissionPhase.STAGE_SEPARATION:
+        # S1 MECO mass = stacked dry + landing fuel reserve
+        meco_mass = C.DRY_MASS + C.STAGE1_LANDING_FUEL_RESERVE
+        guidance = compute_guidance_output(state.r, state.v, state.t, state.m,
+                                          meco_mass=meco_mass)
+    elif phase in [MissionPhase.COAST, MissionPhase.STAGE_SEPARATION,
+                   MissionPhase.S2_COAST_TO_APOGEE]:
         guidance = compute_coast_guidance(state.r, state.v, state.t, state.m)
-    elif phase in [MissionPhase.BOOSTER_FLIP, MissionPhase.BOOSTER_BOOSTBACK, MissionPhase.BOOSTER_COAST, MissionPhase.BOOSTER_ENTRY, MissionPhase.BOOSTER_LANDING]:
+    elif phase == MissionPhase.ORBIT_INSERTION:
+        guidance = compute_orbit_insertion_guidance(state.r, state.v, state.t, state.m)
+    elif phase in [MissionPhase.BOOSTER_FLIP, MissionPhase.BOOSTER_BOOSTBACK,
+                   MissionPhase.BOOSTER_COAST, MissionPhase.BOOSTER_ENTRY,
+                   MissionPhase.BOOSTER_LANDING]:
         guidance = compute_booster_guidance(state.r, state.v, state.t, state.m, phase.name)
     else:
-        # Default fallback (e.g. Apogee reached)
+        # Default fallback (ORBIT_ACHIEVED, APOGEE_REACHED, etc.)
         guidance = compute_coast_guidance(state.r, state.v, state.t, state.m)
-        guidance['phase'] = "APOGEE_HOLD"
+        guidance['phase'] = phase.name
 
     desired_dir = guidance['thrust_direction']
     actuator = update_actuator(actuator, desired_dir, dt)
     thrust_dir_cmd = actuator.thrust_dir
-    
+
     # Step 2: Attitude control
     control = compute_control_output(
         state.q, state.omega, thrust_dir_cmd
     )
-    
-    # Step 3: Integration
+
+    # Step 3: Integration (with correct engine stage parameters)
     new_state = integrate(
         state, control['torque'], dt,
         thrust_on=guidance['thrust_on'],
         method='rk4',
         throttle=guidance.get('throttle', 1.0),
-        dry_mass=dry_mass
+        dry_mass=dry_mass,
+        stage=stage
     )
-    
+
     return new_state, guidance, control, actuator
 
 
 def run_simulation(initial_state: Optional[State] = None, dt: float = None, max_time: float = None,
                    verbose: bool = True, coast_to_apogee: bool = True, vehicle_type: str = "ascent") -> tuple:
     """
-    Run the complete Phase-I ascent simulation.
-    
+    Run the complete multi-phase mission simulation.
+
+    Supports three vehicle types:
+    - "ascent": S1 ascent only, terminates at apogee (legacy mode)
+    - "orbiter": Full mission — S1 ascent → coast → S2 orbit insertion
+    - "booster": S1 booster recovery after separation
+
     Args:
         initial_state: Optional starting state. If None, starts from liftoff default.
         dt: Time step (default from constants)
@@ -376,7 +402,7 @@ def run_simulation(initial_state: Optional[State] = None, dt: float = None, max_
         verbose: Print progress updates
         coast_to_apogee: If True, allow coasting after MECO until apogee
         vehicle_type: "ascent", "orbiter", or "booster" to determine mission logic
-        
+
     Returns:
         (final_state, log, termination_reason) tuple
     """
@@ -384,47 +410,60 @@ def run_simulation(initial_state: Optional[State] = None, dt: float = None, max_
         dt = C.DT
     if max_time is None:
         max_time = C.MAX_TIME
-    
+
     # Initialize state
     if initial_state is not None:
         state = initial_state.copy()
     else:
         state = create_initial_state()
-        
+
+    # Reset guidance PID state to prevent carry-over between runs
+    reset_guidance()
+
     log = SimulationLog()
     actuator = ActuatorState(thrust_dir=compute_local_vertical(state.r))
-    mission_mgr = MissionManager(vehicle_type=vehicle_type)
-    
-    # [FIX #3] Initialize energy tracking for conservation check
+    mission_mgr = MissionManager(vehicle_type=vehicle_type, initial_mass=state.m)
+
+    # Initialize energy tracking for conservation check
     E_prev = compute_total_energy(state.r, state.v, state.m)
-    
+
     # Log startup info
-    logger.info(f"Starting simulation: dt={dt}s, max_time={max_time}s")
+    logger.info(f"Starting simulation: dt={dt}s, max_time={max_time}s, vehicle={vehicle_type}")
     logger.debug(f"Initial state: {state}")
-    
+
     if verbose:
         print("\n" + "=" * 80)
-        print(f"RLV PHASE-I SIMULATION    | dt={dt}s | T_max={max_time}s")
+        print(f"RLV MISSION SIMULATION    | dt={dt}s | T_max={max_time}s | vehicle={vehicle_type}")
         print("=" * 80)
-        print(f"{'Time (s)':^10} | {'Alt (km)':^10} | {'Vel (m/s)':^10} | {'Mass (kg)':^12} | {'Phase':<15}")
+        print(f"{'Time (s)':^10} | {'Alt (km)':^10} | {'Vel (m/s)':^10} | {'Mass (kg)':^12} | {'Phase':<20}")
         print("-" * 80)
-    
+
     start_time = time.time()
     step_count = 0
     last_print_time = 0
     meco_time = None
-    
-    # Determine dry mass based on vehicle type
+    separation_mass_applied = False  # Flag for one-time mass drop event
+
+    # ===== Vehicle Configuration =====
+    # Engine stage (1 = S1 engines, 2 = S2 engine)
+    # Switches from 1 to 2 after stage separation
+    current_stage = 1
+
+    # Determine initial dry mass based on vehicle type
     if vehicle_type == "booster":
         current_dry_mass = C.STAGE1_DRY_MASS
     elif vehicle_type == "orbiter":
-        current_dry_mass = 20000.0  # Estimate (Stage 2 Dry + Payload) - Constant not defined
+        # Orbiter starts as S2 vehicle (given post-separation state)
+        current_dry_mass = C.STAGE2_DRY_MASS
+        current_stage = 2
     else:
-        current_dry_mass = C.DRY_MASS
-    
+        # Ascent: stacked vehicle, MECO with fuel reserve
+        # During ascent, the integrator's dry_mass floor = DRY_MASS + LANDING_RESERVE
+        current_dry_mass = C.DRY_MASS + C.STAGE1_LANDING_FUEL_RESERVE
+
     # Main simulation loop
     while True:
-        # Record MECO time (first dry-mass detection)
+        # Record MECO time (first propellant exhaustion detection)
         if meco_time is None and is_propellant_exhausted(state.m, current_dry_mass):
             meco_time = state.t
 
@@ -435,7 +474,7 @@ def run_simulation(initial_state: Optional[State] = None, dt: float = None, max_
             if verbose:
                 print(f"\nTermination: {reason}")
             return state, log, reason
-        
+
         # Validate state
         try:
             validate_state(state, dry_mass=current_dry_mass)
@@ -445,27 +484,79 @@ def run_simulation(initial_state: Optional[State] = None, dt: float = None, max_
                 print(f"\nValidation Error: {e}")
             reason = f"Validation failure: {e}"
             break
-        
-        # Update Mission Manager
-        mission_mgr.update(state, dt)
-        
-        # Execute timestep
-        state, guidance, control, actuator = simulation_step(state, actuator, mission_mgr, dt, dry_mass=current_dry_mass)
 
-        # Abort if gamma tracking diverges badly after initial 5s
-        # Optional gamma divergence check (relaxed)
-        gamma_err = abs(guidance.get('gamma_command_deg', 0.0) - guidance.get('gamma_measured_deg', 0.0))
-        if state.t > 60.0 and gamma_err > 70.0:
-            reason = f"Guidance divergence: |gamma_error|={gamma_err:.1f} deg"
-            logger.error(reason)
-            break
-        
+        # Update Mission Manager
+        phase_before = mission_mgr.get_phase()
+        mission_mgr.update(state, dt)
+        phase_after = mission_mgr.get_phase()
+
+        # ===== STAGE SEPARATION MASS EVENT =====
+        # When transitioning past STAGE_SEPARATION into any S2 phase, drop S1 mass.
+        # This is a discrete event: the booster (S1 dry mass + landing fuel) separates,
+        # and the vehicle continues as S2 only.
+        # Note: mission manager may jump from STAGE_SEPARATION directly to ORBIT_INSERTION
+        # in a single update() call, so we check for any post-separation phase.
+        s2_phases = {MissionPhase.S2_COAST_TO_APOGEE, MissionPhase.ORBIT_INSERTION,
+                     MissionPhase.ORBIT_ACHIEVED}
+        pre_sep_phases = {MissionPhase.ASCENT, MissionPhase.COAST, MissionPhase.STAGE_SEPARATION}
+        if (not separation_mass_applied and
+                phase_after in s2_phases and
+                phase_before in pre_sep_phases):
+
+            mass_before = state.m
+            # After separation: S2 wet mass only (S1 structure + landing fuel go with booster)
+            # Vehicle mass drops from ~192,000 kg to 120,000 kg
+            s2_mass = C.STAGE2_WET_MASS
+
+            # At separation, angular momentum transfers but inertia changes dramatically.
+            # The separation springs impart a small delta-omega, but the main effect is
+            # that the lighter S2 will have higher omega for the same angular momentum.
+            # To prevent instability, we damp the angular velocity (physically: S2 has
+            # its own RCS thrusters that actively null rates after separation).
+            omega_damped = state.omega * 0.1  # RCS rate nulling
+
+            state_dict = {
+                'r': state.r.copy(),
+                'v': state.v.copy(),
+                'q': state.q.copy(),
+                'omega': omega_damped,
+                'm': s2_mass,
+                't': state.t
+            }
+            state = State(**state_dict)
+
+            # Switch to S2 engine parameters
+            current_stage = 2
+            current_dry_mass = C.STAGE2_DRY_MASS
+            separation_mass_applied = True
+
+            logger.info(f"SEPARATION MASS EVENT at t={state.t:.2f}s: "
+                       f"mass {mass_before:.0f} -> {state.m:.0f} kg "
+                       f"(dropped S1 dry={C.STAGE1_DRY_MASS:.0f}kg + "
+                       f"landing fuel={C.STAGE1_LANDING_FUEL_RESERVE:.0f}kg)")
+            if verbose:
+                print(f"  *** STAGE SEPARATION: {mass_before:.0f} -> {state.m:.0f} kg | "
+                      f"Switched to S2 engine (590 kN, Isp={C.STAGE2_ISP_VAC}s)")
+
+        # Execute timestep
+        state, guidance, control, actuator = simulation_step(
+            state, actuator, mission_mgr, dt,
+            dry_mass=current_dry_mass, stage=current_stage
+        )
+
+        # Abort if gamma tracking diverges badly (only during ascent)
+        if mission_mgr.get_phase() == MissionPhase.ASCENT:
+            gamma_err = abs(guidance.get('gamma_command_deg', 0.0) - guidance.get('gamma_measured_deg', 0.0))
+            if state.t > 60.0 and gamma_err > 70.0:
+                reason = f"Guidance divergence: |gamma_error|={gamma_err:.1f} deg"
+                logger.error(reason)
+                break
+
         # Log data
         log.append(state, guidance, control)
-        
+
         # Periodically check energy and print status
         step_count += 1
-        
 
         if step_count % 100 == 0:
             E_current = compute_total_energy(state.r, state.v, state.m)
@@ -473,16 +564,16 @@ def run_simulation(initial_state: Optional[State] = None, dt: float = None, max_
             if not guidance['thrust_on']:
                 _validate_energy(E_current, E_prev, dt * 100, state.t)
             E_prev = E_current
-            
+
             if verbose and state.t - last_print_time >= 10.0:
                 _print_status(state, guidance['phase'])
                 last_print_time = state.t
-    
+
     elapsed = time.time() - start_time
-    
+
     # Log final results
     _log_completion(state, step_count, elapsed, verbose)
-    
+
     return state, log, reason
 
 

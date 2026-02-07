@@ -44,16 +44,20 @@ class ControlOutput(TypedDict):
 
 
 class ForceBreakdown(TypedDict):
-    """Return type for force computation details."""
+    """Return type for force computation details (ECI inertial frame).
+
+    Note: No Coriolis force — this is an inertial frame formulation.
+    Earth rotation is accounted for via air-relative velocity in drag/lift.
+    """
     gravity: NDArray[np.float64]  # Gravity force vector (N)
     thrust: NDArray[np.float64]  # Thrust force vector (N)
     drag: NDArray[np.float64]  # Drag force vector (N)
-    coriolis: NDArray[np.float64]  # Coriolis force vector (N)
+    lift: NDArray[np.float64]  # Lift force vector (N)
     total: NDArray[np.float64]  # Total force vector (N)
     gravity_magnitude: float  # Gravity force magnitude (N)
     thrust_magnitude: float  # Thrust force magnitude (N)
     drag_magnitude: float  # Drag force magnitude (N)
-    coriolis_magnitude: float  # Coriolis force magnitude (N)
+    lift_magnitude: float  # Lift force magnitude (N)
 
 
 class AtmosphereProperties(TypedDict):

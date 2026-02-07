@@ -106,8 +106,6 @@ def quaternion_to_rotation_matrix(q: np.ndarray) -> np.ndarray:
         [    2*(xy + wz), 1 - 2*(xx + zz),     2*(yz - wx)],
         [    2*(xz - wy),     2*(yz + wx), 1 - 2*(xx + yy)]
     ])
-    
-    return R
 
 
 def rotation_matrix_to_quaternion(R: np.ndarray) -> np.ndarray:

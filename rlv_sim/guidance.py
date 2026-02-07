@@ -228,7 +228,24 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt:
     return thrust_dir, gamma_cmd_clamped, gamma_meas_deg
 
 
-def compute_guidance_output(r: np.ndarray, v: np.ndarray, t: float, m: float) -> GuidanceOutput:
+def compute_guidance_output(r: np.ndarray, v: np.ndarray, t: float, m: float,
+                            meco_mass: float = None) -> GuidanceOutput:
+    """
+    Compute ascent guidance output for Stage 1 powered flight.
+
+    Args:
+        r: Position vector (ECI, m)
+        v: Velocity vector (ECI, m/s)
+        t: Current time (s)
+        m: Current vehicle mass (kg)
+        meco_mass: Mass at which MECO occurs. Defaults to stacked dry mass
+                   plus S1 landing fuel reserve.
+    """
+    if meco_mass is None:
+        # S1 MECO occurs when ascent propellant is depleted, reserving fuel for landing
+        # MECO mass = S1_dry + S2_wet + landing_reserve
+        meco_mass = C.DRY_MASS + C.STAGE1_LANDING_FUEL_RESERVE
+
     altitude = float(np.linalg.norm(r) - C.R_EARTH)
     thrust_dir, gamma_cmd, gamma_meas = compute_desired_thrust_direction(r, v, t)
 
@@ -243,7 +260,7 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray, t: float, m: float) ->
     else:
         phase = "PROGRADE"
 
-    thrust_on = (m > C.DRY_MASS)
+    thrust_on = (m > meco_mass)
     v_rel = compute_relative_velocity(r, v)
     v_rel_norm = float(np.linalg.norm(v_rel))
 
@@ -287,10 +304,164 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray, t: float, m: float) ->
     }
 
 
+def compute_orbit_insertion_guidance(r: np.ndarray, v: np.ndarray, t: float, m: float) -> GuidanceOutput:
+    """
+    Guidance logic for S2 orbit insertion burn.
+
+    Steering law: TWR-adaptive pitch program with altitude feedback.
+
+    The S2 engine has TWR < 1 at ignition (0.50 at 120 t), increasing to
+    TWR = 3.5 at burnout (17 t). The pitch program must balance:
+    - Building horizontal velocity (requires low pitch = near horizontal)
+    - Preventing excessive altitude loss (requires high pitch = near vertical)
+
+    Strategy:
+    The pitch angle above local horizontal is computed in two parts:
+
+    1. BASE PITCH from velocity progress toward circular:
+       As v_horizontal approaches v_circular, pitch decreases from ~40 deg to 0.
+       pitch_base = 40 * (1 - v_h/v_circ)^0.6  [degrees]
+
+    2. ALTITUDE FEEDBACK correction:
+       - If radial velocity is negative (descending), add upward bias
+       - If altitude drops below minimum safe threshold, increase bias
+       - This prevents the perigee from dropping into the atmosphere
+
+    The result is a smooth pitch program that:
+    - Starts steep (~40 deg) to gain altitude and arrest the natural fall
+    - Gradually flattens as horizontal velocity increases
+    - Goes nearly horizontal near orbital velocity
+    - Uses altitude feedback as a safety net
+
+    Termination: v_circular reached OR S2 propellant exhausted.
+    """
+    altitude = float(np.linalg.norm(r) - C.R_EARTH)
+    v_inertial = float(np.linalg.norm(v))
+    r_mag = float(np.linalg.norm(r))
+    vertical = compute_local_vertical(r)
+
+    # Circular velocity at current radius
+    v_circular = float(np.sqrt(C.MU_EARTH / r_mag))
+    v_deficit = v_circular - v_inertial
+
+    # Decompose velocity into radial and horizontal components
+    v_radial = float(np.dot(v, vertical))
+    v_horiz_vec = v - v_radial * vertical
+    v_horiz = float(np.linalg.norm(v_horiz_vec))
+
+    # Local horizontal direction (in the velocity plane, perpendicular to radial)
+    if v_horiz > 10.0:
+        horiz_hat = v_horiz_vec / v_horiz
+    else:
+        _, east, _ = compute_local_frame(r)
+        horiz_hat = east
+
+    # =========================================================================
+    # TWR-ADAPTIVE PITCH PROGRAM
+    # =========================================================================
+
+    # Progress toward circular velocity (0 = just started, 1 = orbital)
+    v_progress = float(np.clip(v_horiz / v_circular, 0.0, 1.0))
+
+    # Base pitch angle (degrees above horizontal)
+    # Starts at ~15 deg when v_h/v_circ ~ 0.28 (separation velocity)
+    # Decreases to 0 as v_h approaches v_circ
+    # With TWR=0.83, we need most thrust going horizontal to reach orbit.
+    # The small positive pitch angle prevents rapid altitude loss.
+    pitch_base_deg = 15.0 * (1.0 - v_progress) ** 0.4
+
+    # Altitude feedback: arrest descent rate
+    # If vehicle is descending, add pitch-up correction
+    pitch_correction_deg = 0.0
+    if v_radial < 0.0:
+        # Proportional to descent rate: 1 m/s descent -> 0.15 deg correction
+        pitch_correction_deg += min(15.0, -v_radial * 0.15)
+
+    # Altitude floor protection: if altitude drops below safe threshold,
+    # add strong upward bias to arrest descent
+    min_safe_alt = 80000.0  # 80 km — above atmosphere
+    if altitude < min_safe_alt + 20000.0:
+        # Ramp up correction as altitude approaches floor
+        alt_margin = (altitude - min_safe_alt) / 20000.0  # 1.0 at 100km, 0 at 80km
+        alt_margin = float(np.clip(alt_margin, 0.0, 1.0))
+        pitch_correction_deg += 20.0 * (1.0 - alt_margin)
+
+    # Terminal flattening: when approaching orbital velocity, actively
+    # reduce radial velocity by steering below horizontal.
+    # This ensures the orbit circularizes (low eccentricity) rather than
+    # being highly elliptical with a low perigee.
+    # Start early (3000 m/s deficit) and increase aggressiveness linearly.
+    if v_deficit < 4000.0 and v_radial > 10.0:
+        # Pitch DOWN below horizontal to arrest radial velocity
+        # The closer to orbital speed, the more aggressively we flatten
+        flatten_factor = float(np.clip(1.0 - v_deficit / 4000.0, 0.0, 1.0))
+        # Pitch down proportional to radial velocity and proximity to v_circular
+        pitch_down_deg = flatten_factor * min(20.0, v_radial * 0.05)
+        pitch_base_deg -= pitch_down_deg
+
+    # Total pitch angle
+    pitch_cmd_deg = pitch_base_deg + pitch_correction_deg
+    pitch_cmd_deg = float(np.clip(pitch_cmd_deg, -10.0, 75.0))  # Allow slight negative (below horizontal)
+    pitch_cmd_rad = np.radians(pitch_cmd_deg)
+
+    # Compute thrust direction from pitch angle
+    # pitch_cmd_rad is angle above local horizontal
+    desired_dir = np.cos(pitch_cmd_rad) * horiz_hat + np.sin(pitch_cmd_rad) * vertical
+    desired_dir = desired_dir / np.linalg.norm(desired_dir)
+
+    # S2 propellant remaining
+    s2_prop_remaining = m - C.STAGE2_DRY_MASS
+    thrust_on = s2_prop_remaining > 0.0 and v_deficit > 10.0
+
+    # Throttle shaping: reduce throttle as we approach target to avoid overshoot
+    if v_deficit < 100.0 and v_deficit > 10.0:
+        throttle = float(np.clip(v_deficit / 100.0, 0.1, 1.0))
+    elif v_deficit <= 10.0:
+        throttle = 0.0
+        thrust_on = False
+    else:
+        throttle = 1.0
+
+    cos_pitch = np.clip(np.dot(vertical, desired_dir), -1.0, 1.0)
+    pitch_angle = float(np.arccos(cos_pitch))
+
+    v_rel = compute_relative_velocity(r, v)
+    v_rel_norm = float(np.linalg.norm(v_rel))
+    v_vert = float(np.dot(v_rel, vertical))
+    v_horiz_vec_rel = v_rel - v_vert * vertical
+    v_horiz_rel = float(np.linalg.norm(v_horiz_vec_rel))
+    gamma_actual = float(np.degrees(np.arctan2(v_vert, max(v_horiz_rel, 1e-6))))
+
+    if v_inertial > 1.0:
+        prograde = v / v_inertial
+    else:
+        prograde = vertical
+
+    return {
+        'thrust_direction': desired_dir,
+        'phase': "ORBIT_INSERTION",
+        'thrust_on': thrust_on,
+        'pitch_angle': pitch_angle,
+        'gamma_angle': np.radians(gamma_actual),
+        'gamma_command_deg': gamma_actual,
+        'gamma_measured_deg': gamma_actual,
+        'velocity_tilt_deg': gamma_actual,
+        'blend_alpha': 1.0,
+        'altitude': altitude,
+        'velocity': v_inertial,
+        'local_vertical': vertical,
+        'local_horizontal': compute_local_horizontal(r, v),
+        'prograde': prograde,
+        'throttle': throttle,
+        'v_rel': v_rel,
+        'v_rel_mag': v_rel_norm
+    }
+
+
 def compute_coast_guidance(r: np.ndarray, v: np.ndarray, t: float, m: float) -> GuidanceOutput:
     """
     Guidance logic for Phase II (Coast).
-    
+
     - Thrust: OFF
     - Attitude: Prograde (aligned with relative velocity)
     """
@@ -335,80 +506,308 @@ def compute_coast_guidance(r: np.ndarray, v: np.ndarray, t: float, m: float) -> 
     }
 
 
+def _compute_boostback_direction(r: np.ndarray, v: np.ndarray,
+                                  launch_site: np.ndarray) -> np.ndarray:
+    """
+    Compute optimal boostback thrust direction to return to launch site.
+
+    Uses the velocity-to-be-gained (VTG) method:
+      v_desired = unit(launch_site - r) * |some speed toward site|
+      VTG = v_desired - v
+      thrust_dir = -unit(VTG)   (burn retrograde to the velocity error)
+
+    For boostback the primary goal is to cancel downrange velocity and
+    add velocity toward the launch site, so we burn opposite to the
+    horizontal velocity component relative to the launch-site direction.
+    """
+    # Vector from vehicle to launch site
+    r_to_site = launch_site - r
+    r_to_site_norm = np.linalg.norm(r_to_site)
+
+    if r_to_site_norm < 1e3:
+        # Already very close — just point retrograde
+        v_norm = np.linalg.norm(v)
+        if v_norm > 1.0:
+            return -v / v_norm
+        return compute_local_vertical(r)
+
+    # Desired velocity direction: toward launch site, in the horizontal plane
+    vertical = compute_local_vertical(r)
+
+    # Project r_to_site onto horizontal plane
+    r_horiz = r_to_site - np.dot(r_to_site, vertical) * vertical
+    r_horiz_norm = np.linalg.norm(r_horiz)
+
+    if r_horiz_norm < 1e3:
+        # Directly above launch site — just go retrograde vertically
+        v_norm = np.linalg.norm(v)
+        if v_norm > 1.0:
+            return -v / v_norm
+        return vertical
+
+    # Target direction: weighted blend of (towards site) and (retrograde)
+    # to simultaneously cancel downrange velocity and head home
+    towards_site = r_horiz / r_horiz_norm
+
+    # Horizontal velocity component
+    v_horiz = v - np.dot(v, vertical) * vertical
+    v_horiz_norm = np.linalg.norm(v_horiz)
+
+    # Velocity to be gained: we want v_horiz to point toward site
+    # VTG = desired_v_horiz - actual_v_horiz
+    # We want zero downrange velocity eventually, so desired is small toward site
+    desired_speed = min(200.0, r_horiz_norm / 60.0)  # approach speed
+    v_desired = towards_site * desired_speed
+    vtg = v_desired - v_horiz
+
+    vtg_norm = np.linalg.norm(vtg)
+    if vtg_norm < 1.0:
+        # Velocity error negligible — coast
+        return -v / max(np.linalg.norm(v), 1.0)
+
+    # Thrust along VTG direction (burn to gain what we lack)
+    thrust_dir = vtg / vtg_norm
+
+    # Add a vertical component proportional to descent rate to keep altitude
+    v_vert = np.dot(v, vertical)
+    if v_vert < -50.0:
+        # Falling fast — add upward component
+        vert_weight = min(0.3, abs(v_vert) / 1000.0)
+        thrust_dir = (1.0 - vert_weight) * thrust_dir + vert_weight * vertical
+        thrust_dir /= np.linalg.norm(thrust_dir)
+
+    return thrust_dir
+
+
+def _compute_suicide_burn_params(r: np.ndarray, v: np.ndarray,
+                                  m: float, dry_mass: float) -> dict:
+    """
+    Compute suicide burn (hoverslam) ignition parameters.
+
+    Physics: For a vehicle descending at speed v at altitude h,
+    the required burn altitude for a constant-thrust deceleration
+    to zero velocity at h=0 is:
+
+        a_brake = T/m - g      (net deceleration)
+        v² = 2 * a_brake * h   (kinematics)
+        h_ignite = v² / (2 * a_brake)
+
+    We compute this continuously and command ignition when
+    current altitude <= h_ignite * safety_factor.
+
+    Returns dict with: ignite (bool), throttle (float), burn_altitude (float)
+    """
+    vertical = compute_local_vertical(r)
+    altitude = float(np.linalg.norm(r) - C.R_EARTH)
+
+    # Descent speed (positive = downward)
+    v_descent = -float(np.dot(v, vertical))
+
+    if v_descent <= 0.0:
+        # Not descending yet — no burn needed
+        return {'ignite': False, 'throttle': 0.0, 'burn_altitude': 0.0}
+
+    # Net deceleration at current mass (full throttle)
+    # T/m - g (accounting for gravity opposing the burn)
+    g_local = C.MU_EARTH / np.linalg.norm(r)**2
+    thrust_accel = C.THRUST_MAGNITUDE / m  # Using sea-level thrust (conservative)
+    a_brake = thrust_accel - g_local
+
+    if a_brake <= 0.0:
+        # Thrust cannot overcome gravity — burn immediately at full throttle
+        return {'ignite': True, 'throttle': 1.0, 'burn_altitude': altitude}
+
+    # Required burn altitude from kinematics: v² = 2*a*h
+    # Use total speed (not just vertical) for conservative estimate since
+    # horizontal velocity also needs to be arrested near the ground
+    v_total = float(np.linalg.norm(v))
+    v_effective = max(v_descent, v_total * 0.8)  # conservative: 80% of total speed
+    h_ignite = (v_effective ** 2) / (2.0 * a_brake)
+
+    # Safety margin: ignite 50% early to account for throttle lag, mass change,
+    # atmospheric deceleration uncertainty, and engine spool-up time
+    safety_factor = 1.5
+
+    # Throttle shaping for soft touchdown
+    if altitude <= h_ignite * safety_factor:
+        # We need to burn. Compute throttle to achieve desired deceleration.
+        # Target: arrive at h=0 with v=0
+        # Required decel: v² / (2*h) + g
+        if altitude > 10.0:
+            a_required = (v_descent**2) / (2.0 * altitude) + g_local
+        else:
+            # Final meters — full power to arrest
+            a_required = thrust_accel
+
+        # Throttle = a_required / thrust_accel (clamped)
+        throttle = float(np.clip(a_required / thrust_accel, 0.3, 1.0))
+
+        return {'ignite': True, 'throttle': throttle, 'burn_altitude': h_ignite}
+
+    return {'ignite': False, 'throttle': 0.0, 'burn_altitude': h_ignite}
+
+
 def compute_booster_guidance(r: np.ndarray, v: np.ndarray, t: float, m: float, phase: str) -> GuidanceOutput:
     """
     Guidance logic for Booster Recovery (Phase III-B).
-    
-    Phases:
-    - FLIP: Reorient 180 deg to point engines retrograde.
-    - BOOSTBACK: Fire engines to cancel downrange velocity.
-    - COAST: Ballistic return.
-    - ENTRY: High-alpha for drag.
-    - LANDING: Vertical descent.
+
+    Physics-based guidance for each sub-phase:
+
+    FLIP:       Reorient 180 deg retrograde. Zero thrust, RCS/aero torques.
+                Transition: when body axis aligns within 15 deg of retrograde.
+
+    BOOSTBACK:  Velocity-to-be-gained (VTG) steering toward launch site.
+                Full throttle to cancel downrange velocity and head home.
+                Transition: when horizontal velocity toward launch site < threshold.
+
+    COAST:      Ballistic arc. Attitude holds retrograde for entry prep.
+                Transition: at entry interface (altitude < 70 km, densifying atmosphere).
+
+    ENTRY:      Retrograde attitude for aerodynamic braking. High-drag belly-first
+                orientation. No thrust (save fuel for landing).
+                Transition: subsonic and below 5 km.
+
+    LANDING:    Suicide burn (hoverslam) guidance. Physics-based ignition timing:
+                h_ignite = v² / (2*(T/m - g)) with throttle modulation.
     """
     altitude = float(np.linalg.norm(r) - C.R_EARTH)
-    
+
     # Defaults
     thrust_on = False
     throttle = 0.0
-    desired_dir = compute_local_vertical(r) # Default Up
-    
+    desired_dir = compute_local_vertical(r)
+
     v_rel = compute_relative_velocity(r, v)
     v_rel_norm = float(np.linalg.norm(v_rel))
-    
+
     prograde = v_rel / v_rel_norm if v_rel_norm > 1.0 else compute_local_vertical(r)
     retrograde = -prograde
-    
+    vertical = compute_local_vertical(r)
+
+    # Launch site for boostback targeting
+    launch_site = C.INITIAL_POSITION.copy()
+
     # --- PHASE LOGIC ---
     if phase == "BOOSTER_FLIP":
-        # Target Retrograde
-        desired_dir = retrograde
-        thrust_on = False # Coasting flip
-        
-    elif phase == "BOOSTER_BOOSTBACK":
-        # Target Retrograde + Throttle Up
-        desired_dir = retrograde
-        thrust_on = True
-        throttle = 1.0 # Max power for boostback
-        
-    elif phase == "BOOSTER_COAST":
-        # Engines First (Retrograde) for entry prep
+        # Point engines retrograde (180-deg flip maneuver)
+        # During flip we are in vacuum/near-vacuum, using RCS/reaction wheels
+        # Attitude controller handles the rotation; guidance just commands direction
         desired_dir = retrograde
         thrust_on = False
-        
-    elif phase == "BOOSTER_ENTRY":
-        # Engines First (Retrograde)
-        desired_dir = retrograde
-        thrust_on = False
-        
-    elif phase == "BOOSTER_LANDING":
-        # Retrograde (Vertical at this point) + Landing Burn
-        desired_dir = retrograde
-        thrust_on = True # Landing burn
-        # Simple suicide burn logic placeholder:
-        # If impact time < burn time, throttle = 1.0
-        # For now, just simplistic braking
-        if altitude < 5000:
-             throttle = 1.0
-        else:
-             throttle = 0.0
-             thrust_on = False
 
-    # Common Outputs
-    vertical = compute_local_vertical(r)
+    elif phase == "BOOSTER_BOOSTBACK":
+        # VTG steering toward launch site at full throttle
+        desired_dir = _compute_boostback_direction(r, v, launch_site)
+        thrust_on = True
+        throttle = 1.0
+
+    elif phase == "BOOSTER_COAST":
+        # Ballistic coast — hold retrograde attitude for entry prep
+        # This minimizes AoA at entry interface
+        desired_dir = retrograde
+        thrust_on = False
+
+    elif phase == "BOOSTER_ENTRY":
+        # Entry phase: retrograde attitude with entry burn for deceleration
+        # Similar to Falcon 9 "entry burn" at ~70-40 km altitude.
+        # This reduces velocity before the final landing burn, lowering
+        # the fuel requirement and thermal loads.
+        desired_dir = retrograde
+
+        # Entry burn: fire engines retrograde when speed exceeds threshold
+        # to reduce velocity before dense atmosphere. Similar to Falcon 9 entry burn.
+        # Only burn in upper entry corridor (35-70 km) and reserve fuel for landing.
+        propellant_remaining = m - C.STAGE1_DRY_MASS
+        landing_fuel_reserve = 20000.0  # kg — enough for ~500 m/s dV at landing mass
+
+        entry_burn_on = (
+            altitude > 35000.0 and                      # Upper entry corridor
+            v_rel_norm > 800.0 and                      # Only if going fast
+            propellant_remaining > landing_fuel_reserve  # Reserve for landing
+        )
+
+        if entry_burn_on:
+            thrust_on = True
+            throttle = 0.7  # Partial throttle to conserve fuel
+        else:
+            thrust_on = False
+
+    elif phase == "BOOSTER_LANDING":
+        # Suicide burn / hoverslam guidance
+        # Physics: ignite when h = v²/(2*(T/m - g)) * safety_margin
+        burn_params = _compute_suicide_burn_params(r, v, m, C.STAGE1_DRY_MASS)
+
+        # Compute descent rate for intelligent thrust vectoring
+        v_descent = -float(np.dot(v, vertical))  # positive = going down
+        v_horiz_vec = v - np.dot(v, vertical) * vertical
+        v_horiz_mag = float(np.linalg.norm(v_horiz_vec))
+        v_total = float(np.linalg.norm(v))
+
+        if burn_params['ignite']:
+            # Thrust direction strategy:
+            # High altitude: retrograde (cancel total velocity efficiently)
+            # Transition: blend toward vertical with anti-horizontal correction
+            # Low altitude: mostly vertical to ensure soft touchdown
+
+            if altitude > 2000.0:
+                # Above 2km: pure retrograde to cancel all velocity
+                desired_dir = retrograde
+            elif altitude > 200.0:
+                # 200m to 2km: blend from retrograde toward vertical
+                # but add a horizontal cancellation component
+                blend = (altitude - 200.0) / 1800.0  # 1.0 at 2km, 0.0 at 200m
+                desired_dir = blend * retrograde + (1.0 - blend) * vertical
+
+                # Add horizontal correction if significant horizontal speed remains
+                if v_horiz_mag > 20.0:
+                    horiz_correction = -v_horiz_vec / v_horiz_mag
+                    # Tilt toward horizontal cancel (proportional to h_speed ratio)
+                    horiz_weight = min(0.3, v_horiz_mag / v_total) * (1.0 - blend)
+                    desired_dir = (1.0 - horiz_weight) * desired_dir + horiz_weight * horiz_correction
+
+                norm_d = np.linalg.norm(desired_dir)
+                if norm_d > 1e-6:
+                    desired_dir /= norm_d
+                else:
+                    desired_dir = vertical
+            else:
+                # Below 200m: pure vertical for touchdown
+                desired_dir = vertical
+
+            thrust_on = True
+            # Use full throttle when velocity is high, modulate near touchdown
+            if v_total > 100.0:
+                throttle = 1.0  # Full power to decelerate
+            else:
+                throttle = burn_params['throttle']
+        else:
+            # Not yet time to ignite — coast in retrograde attitude
+            desired_dir = retrograde
+            thrust_on = False
+
+    # --- Common flight-path angle computation ---
+    v_vert = float(np.dot(v_rel, vertical))
+    v_horiz_vec = v_rel - v_vert * vertical
+    v_horiz = float(np.linalg.norm(v_horiz_vec))
+
+    if v_rel_norm > 1.0:
+        gamma_deg = float(np.degrees(np.arctan2(v_vert, max(v_horiz, 1e-6))))
+    else:
+        gamma_deg = 90.0 if np.dot(v, vertical) >= 0 else -90.0
+
     cos_pitch = np.clip(np.dot(vertical, desired_dir), -1.0, 1.0)
     pitch_angle = float(np.arccos(cos_pitch))
-    
+
     return {
         'thrust_direction': desired_dir,
         'phase': phase,
         'thrust_on': thrust_on,
         'pitch_angle': pitch_angle,
-        'gamma_angle': 0.0, # Placeholder
-        'gamma_command_deg': 0.0,
-        'gamma_measured_deg': 0.0,
-        'velocity_tilt_deg': 0.0,
-        'blend_alpha': 0.0,
+        'gamma_angle': np.radians(gamma_deg),
+        'gamma_command_deg': gamma_deg,
+        'gamma_measured_deg': gamma_deg,
+        'velocity_tilt_deg': float(np.degrees(np.arctan2(v_horiz, abs(v_vert)))) if v_rel_norm > 1.0 else 0.0,
+        'blend_alpha': 1.0,
         'altitude': altitude,
         'velocity': float(np.linalg.norm(v)),
         'local_vertical': vertical,

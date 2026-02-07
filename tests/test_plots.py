@@ -60,6 +60,14 @@ class MockLog:
         self.velocity_y = list(np.linspace(465, 600, n_points))
         self.velocity_z = list(np.linspace(0, 2800, n_points))
 
+        # Inertial thrust vector (N) — simulates thrust decaying as pitch increases
+        thrust_mag = np.where(np.linspace(0, 100, n_points) < 80,
+                              7.6e6, 0.0)  # Thrust on for 80% of flight
+        pitch_rad = np.radians(self.pitch_angle)
+        self.inertial_thrust_x = list(thrust_mag * np.cos(pitch_rad))
+        self.inertial_thrust_y = list(np.zeros(n_points))
+        self.inertial_thrust_z = list(thrust_mag * np.sin(pitch_rad))
+
 
 class TestPlotGeneration(unittest.TestCase):
     """Test suite for plot generation functionality."""
@@ -182,8 +190,9 @@ class TestGravityTurnDetection(unittest.TestCase):
             velocity_rel_vec=np.zeros((4, 3)),
             downrange=np.array([0, 10, 20, 30]),
             dynamic_pressure=np.array([0, 10, 20, 30]),
+            thrust_force=np.array([7.6e6, 7.6e6, 7.6e6, 0.0]),
         )
-        
+
         turn_time = compute_gravity_turn_start(data)
         # With constant pitch, no pitch rate exceeds threshold, so returns
         # time at index min(20, n-1) = min(20, 3) = 3, which is time=30.0
@@ -211,6 +220,7 @@ class TestGravityTurnDetection(unittest.TestCase):
             velocity_rel_vec=np.zeros((5, 3)),
             downrange=np.array([0, 5, 15, 30, 50]),
             dynamic_pressure=np.array([0, 10, 30, 50, 70]),
+            thrust_force=np.array([7.6e6, 7.6e6, 7.6e6, 7.6e6, 0.0]),
         )
         
         turn_time = compute_gravity_turn_start(data)

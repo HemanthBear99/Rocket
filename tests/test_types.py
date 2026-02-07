@@ -37,10 +37,13 @@ def test_forcebreakdown_typeddict():
         gravity=np.zeros(3),
         thrust=np.zeros(3),
         drag=np.zeros(3),
+        lift=np.zeros(3),
         total=np.zeros(3),
         gravity_magnitude=0.0,
         thrust_magnitude=0.0,
-        drag_magnitude=0.0
+        drag_magnitude=0.0,
+        lift_magnitude=0.0
     )
     assert isinstance(out["gravity"], np.ndarray)
     assert out["drag_magnitude"] == 0.0
+    assert out["lift_magnitude"] == 0.0

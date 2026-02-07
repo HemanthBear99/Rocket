@@ -182,32 +182,32 @@ def compute_orbital_energy(r: np.ndarray, v: np.ndarray, m: float) -> float:
     return kinetic + potential
 
 
-def validate_energy_conservation(state_initial: State, state_final: State,
-                                 tolerance: float = None) -> bool:
+def validate_energy_conservation_states(state_initial: State, state_final: State,
+                                        tolerance: float = None) -> bool:
     """
-    Check energy conservation for unpowered flight.
-    
+    Check energy conservation for unpowered flight between two State objects.
+
     This is only valid when thrust = 0 and drag is negligible.
-    
+
     Args:
         state_initial: Initial state
         state_final: Final state
         tolerance: Relative tolerance for energy change
-        
+
     Returns:
         True if energy is conserved within tolerance
     """
     if tolerance is None:
         tolerance = C.ENERGY_TOLERANCE
-    
+
     E_initial = compute_orbital_energy(state_initial.r, state_initial.v, state_initial.m)
     E_final = compute_orbital_energy(state_final.r, state_final.v, state_final.m)
-    
+
     if abs(E_initial) < 1e-10:
         return True  # Can't compute relative error
-    
+
     relative_change = abs(E_final - E_initial) / abs(E_initial)
-    
+
     if relative_change > tolerance:
         raise ValidationError(
             f"Energy conservation violation: ΔE/E = {relative_change:.4e}, "

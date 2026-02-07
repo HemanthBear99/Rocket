@@ -159,8 +159,11 @@ def compute_lift_force(r: np.ndarray, v: np.ndarray, q: np.ndarray) -> np.ndarra
     # Transform v_rel to body frame to get angle of attack
     R = quaternion_to_rotation_matrix(q)
     v_body = R.T @ v_rel
-    # AoA approx: angle between body +X (longitudinal) and velocity projection on x-z plane
-    alpha = np.arctan2(v_body[2], v_body[0])  # radians
+    # Body frame: +Z is nose (longitudinal axis), X and Y are transverse
+    # AoA = angle between velocity vector and body longitudinal axis (+Z)
+    # Using arctan2(transverse, axial) gives the total AoA correctly
+    v_transverse = np.sqrt(v_body[0]**2 + v_body[1]**2)
+    alpha = np.arctan2(v_transverse, abs(v_body[2]))  # radians, always positive
     q_dyn = 0.5 * rho * v_rel_norm**2
     lift_mag = q_dyn * cl_alpha * alpha * C.REFERENCE_AREA
 
@@ -175,49 +178,64 @@ def compute_lift_force(r: np.ndarray, v: np.ndarray, q: np.ndarray) -> np.ndarra
     return lift_mag * lift_dir
 
 
-def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True, throttle: float = 1.0) -> np.ndarray:
+def compute_thrust_force(q: np.ndarray, r: np.ndarray, thrust_on: bool = True, throttle: float = 1.0,
+                         stage: int = 1) -> np.ndarray:
     """
     Compute thrust force in inertial frame with altitude compensation and throttling.
-    
-    Thrust varies with ambient pressure:
+
+    Thrust varies with ambient pressure (Stage 1):
     T = T_vac + (T_sl - T_vac) * (P_amb / P_sl)
-    
+
+    Stage 2 operates in vacuum only (no pressure compensation needed).
+
     Args:
         q: Orientation quaternion
         r: Position vector (for altitude/pressure)
         thrust_on: active flag
         throttle: Throttle setting (0.0 to 1.0)
+        stage: Engine stage (1 = S1 engines, 2 = S2 engine)
     """
     if not thrust_on:
         return np.zeros(3)
-    
+
     # Clamp throttle
     throttle = max(0.0, min(1.0, throttle))
-    
+
     # Ambient conditions
     altitude = np.linalg.norm(r) - C.R_EARTH
     _, P_amb, _, _ = compute_atmosphere_properties(altitude)
     P0 = C.ATM_P0
 
-    # Thrust varies with ambient pressure: T = T_vac - (T_vac - T_sl) * (P_amb / P_sl)
-    # This gives T_sl at sea level, T_vac in vacuum
-    thrust_sl = C.THRUST_MAGNITUDE  # Sea level thrust
-    thrust_vac = C.MASS_FLOW_RATE * C.ISP_VAC * C.G0  # Vacuum thrust
-    
-    # Linear interpolation based on ambient pressure ratio
-    pressure_ratio = P_amb / P0
-    thrust_magnitude = thrust_vac - (thrust_vac - thrust_sl) * pressure_ratio
-    
+    if stage == 2:
+        # Stage 2: vacuum-optimized engine — no pressure compensation
+        # T = mdot * Isp_vac * g0 (constant in vacuum, slight loss in atmosphere)
+        thrust_magnitude = C.STAGE2_THRUST
+        # If somehow in atmosphere (shouldn't happen), apply minor correction
+        if P_amb > 100.0:  # Non-negligible atmosphere
+            # Approximate: thrust drops by ~(P_amb * A_exit) but S2 nozzle is vacuum-optimized
+            # Use simple correction: T_eff = T_vac * (1 - 0.1 * P_amb/P0)
+            thrust_magnitude *= (1.0 - 0.1 * P_amb / P0)
+    else:
+        # Stage 1: pressure-compensated thrust
+        # Thrust varies with ambient pressure: T = T_vac - (T_vac - T_sl) * (P_amb / P_sl)
+        # This gives T_sl at sea level, T_vac in vacuum
+        thrust_sl = C.THRUST_MAGNITUDE  # Sea level thrust
+        thrust_vac = C.MASS_FLOW_RATE * C.ISP_VAC * C.G0  # Vacuum thrust
+
+        # Linear interpolation based on ambient pressure ratio
+        pressure_ratio = P_amb / P0
+        thrust_magnitude = thrust_vac - (thrust_vac - thrust_sl) * pressure_ratio
+
     # Apply throttle
     thrust_magnitude *= float(np.clip(throttle, 0.0, 1.0))
-    
+
     # Thrust in body frame (along +Z axis - vehicle nose direction)
     F_body = np.array([0.0, 0.0, thrust_magnitude])
-    
+
     # Transform to inertial frame
     R = quaternion_to_rotation_matrix(q)
     F_inertial = R @ F_body
-    
+
     return F_inertial
 
 
@@ -305,66 +323,72 @@ def compute_aerodynamic_moment(r: np.ndarray, v: np.ndarray, q: np.ndarray, cg_p
     return torque_aero
 
 
-def compute_total_force(r: np.ndarray, v: np.ndarray, q: np.ndarray, 
-                        m: float, thrust_on: bool = True) -> np.ndarray:
+def compute_total_force(r: np.ndarray, v: np.ndarray, q: np.ndarray,
+                        m: float, thrust_on: bool = True, stage: int = 1) -> np.ndarray:
     """
-    Compute total force acting on the vehicle.
-    F_total = F_grav + F_thrust + F_drag
+    Compute total force acting on the vehicle in the ECI (inertial) frame.
+
+    F_total = F_grav + F_thrust + F_drag + F_lift
+
+    Physics note: No Coriolis force is included because this simulation
+    operates in an Earth-Centered Inertial (ECI) frame. Coriolis is a
+    fictitious force that only appears in rotating (ECEF) reference frames.
+    Earth's rotation IS properly accounted for via the air-relative velocity
+    (v_inertial - omega_E x r) used in drag and lift computations.
     """
     F_grav = compute_gravity_force(r, m)
-    # Note: Updated compute_thrust_force signature to accept 'r'
-    F_thrust = compute_thrust_force(q, r, thrust_on)
+    F_thrust = compute_thrust_force(q, r, thrust_on, stage=stage)
     F_drag = compute_drag_force(r, v)
-    F_coriolis = compute_coriolis_force(v, m)
-    
-    return F_grav + F_thrust + F_drag + F_coriolis
+    F_lift = compute_lift_force(r, v, q)
+
+    return F_grav + F_thrust + F_drag + F_lift
 
 
-def compute_coriolis_force(v: np.ndarray, m: float) -> np.ndarray:
+def compute_centrifugal_correction(r: np.ndarray, m: float) -> np.ndarray:
     """
-    Compute Coriolis force due to Earth's rotation.
-    
-    F_coriolis = -2m(ω_E × v)
-    
-    Reference: ROCKET_SIMULATION_RULES.md Section 2.1
-    [PHASE I] Critical at high altitude (> 50 km) and high velocity (> 5 km/s)
-    Impact: ~1-2% correction to acceleration at high altitude
-    
+    Compute the centrifugal force for ECEF (rotating) frame analysis only.
+
+    In a rotating frame, the centrifugal force points radially OUTWARD:
+        F_centrifugal = -m * omega_E x (omega_E x r)
+
+    Note: omega x (omega x r) points radially INWARD (centripetal).
+    The centrifugal pseudo-force is its negative (outward).
+
+    This is NOT used in the ECI dynamics (where it doesn't exist) but is
+    provided for rotating-frame analysis, effective gravity computation, etc.
+
     Args:
-        v: Velocity in inertial frame (m/s)
+        r: Position in ECI frame (m)
         m: Vehicle mass (kg)
-        
+
     Returns:
-        Coriolis force vector (N)
+        Centrifugal force vector (N) — outward, for ECEF analysis only
     """
-    # Earth's angular velocity vector (rad/s) - pointing along Z axis (North Pole)
     omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
-    
-    # Coriolis acceleration = -2 * ω_E × v
-    coriolis_accel = -2.0 * np.cross(omega_earth, v)
-    
-    # Force = mass × acceleration
-    return m * coriolis_accel
+    # omega x (omega x r) = centripetal (inward); negate for centrifugal (outward)
+    return -m * np.cross(omega_earth, np.cross(omega_earth, r))
 
 
 def compute_specific_forces(r: np.ndarray, v: np.ndarray, q: np.ndarray,
-                            m: float, thrust_on: bool = True) -> ForceBreakdown:
+                            m: float, thrust_on: bool = True, stage: int = 1) -> ForceBreakdown:
     """
     Compute all forces and return as a dictionary for logging/analysis.
+
+    Consistent with dynamics.py: gravity + thrust + drag + lift in ECI frame.
     """
     F_grav = compute_gravity_force(r, m)
-    F_thrust = compute_thrust_force(q, r, thrust_on)
+    F_thrust = compute_thrust_force(q, r, thrust_on, stage=stage)
     F_drag = compute_drag_force(r, v)
-    F_coriolis = compute_coriolis_force(v, m)
-    
+    F_lift = compute_lift_force(r, v, q)
+
     return {
         'gravity': F_grav,
         'thrust': F_thrust,
         'drag': F_drag,
-        'coriolis': F_coriolis,
-        'total': F_grav + F_thrust + F_drag + F_coriolis,
+        'lift': F_lift,
+        'total': F_grav + F_thrust + F_drag + F_lift,
         'gravity_magnitude': np.linalg.norm(F_grav),
         'thrust_magnitude': np.linalg.norm(F_thrust),
         'drag_magnitude': np.linalg.norm(F_drag),
-        'coriolis_magnitude': np.linalg.norm(F_coriolis)
+        'lift_magnitude': np.linalg.norm(F_lift)
     }
