@@ -13,10 +13,15 @@ from . import constants as C
 def _wind_vector(r: np.ndarray) -> np.ndarray:
     """Simple altitude-dependent wind in inertial frame (East/West)."""
     alt = np.linalg.norm(r) - C.R_EARTH
-    if alt <= 0.0 or alt < 5000.0:
+    if alt <= 0.0:
         return np.zeros(3)
-    # power-law profile
+    # power-law profile with smooth onset ramp from 0 to 5 km
+    # to avoid a discontinuity in air-relative velocity at 5 km
     speed = C.WIND_REF_SPEED * (alt / C.WIND_REF_ALT) ** C.WIND_EXPONENT
+    if alt < 5000.0:
+        # Smooth ramp: Hermite (smoothstep) from 0 at ground to 1 at 5 km
+        x = alt / 5000.0
+        speed *= x * x * (3.0 - 2.0 * x)
     # Direction: azimuth from north clockwise; convert to ECI assuming launch site on equator x-axis
     # East unit at site ~ +Y, North ~ +Z, Up ~ +X; but we approximate global: use ECI basis (X radial, Y east, Z north)
     east = np.array([0.0, 1.0, 0.0])

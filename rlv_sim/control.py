@@ -115,7 +115,8 @@ def limit_gimbal_rate(omega: np.ndarray) -> np.ndarray:
 
 
 def pd_control_law(q_error_vector: np.ndarray, error_angle: float,
-                   omega: np.ndarray) -> np.ndarray:
+                   omega: np.ndarray, inertia: float = None,
+                   max_torque: float = None) -> np.ndarray:
     """
     Implement PD attitude control law per Document Section 17.6.
 
@@ -124,14 +125,22 @@ def pd_control_law(q_error_vector: np.ndarray, error_angle: float,
     where q_ev is the vector part of the error quaternion and ω_e is
     the angular velocity error (= ω since ω_cmd = 0 in Phase I).
 
-    This formulation uses the quaternion error vector directly, which is
-    the document-specified approach. For small angles, q_ev ≈ (θ/2)·axis,
-    providing a natural sinusoidal saturation for large errors.
+    Gain scheduling: When the vehicle inertia is provided, gains are
+    scaled to maintain the designed natural frequency (ωn ≈ 1.06 rad/s)
+    and damping ratio (ζ ≈ 0.7) regardless of vehicle mass:
+        Kp_eff = Kp_ref * (I / I_ref)
+        Kd_eff = Kd_ref * (I / I_ref)
+
+    This ensures consistent control response across S1 (I=5.36e7 kg·m²)
+    and S2 (I=0.6e6–4.0e6 kg·m²) without over-torquing or sluggishness.
 
     Args:
         q_error_vector: Vector part of error quaternion [q_e1, q_e2, q_e3]
         error_angle: Magnitude of rotation error (rad) — for logging only
         omega: Current angular velocity in body frame (rad/s)
+        inertia: Representative moment of inertia (kg·m²) for gain scheduling.
+                 If None, uses the reference (S1 full) gains directly.
+        max_torque: Torque saturation limit (N·m). If None, uses C.MAX_TORQUE.
 
     Returns:
         Control torque in body frame (N*m)
@@ -139,62 +148,90 @@ def pd_control_law(q_error_vector: np.ndarray, error_angle: float,
     # Apply gimbal rate limits to angular velocity
     omega_limited = limit_gimbal_rate(omega)
 
+    # Gain scheduling: scale gains proportionally to inertia
+    # Reference design point: I_ref = IXX_FULL = 5.36e7 (S1 at launch)
+    # Kp_ref = 1.2e8, Kd_ref = 7.94e7 → ωn = 1.058 rad/s, ζ = 0.7
+    if inertia is not None and inertia > 0:
+        gain_ratio = inertia / C.IXX_FULL
+        kp = C.KP_ATTITUDE * gain_ratio
+        kd = C.KD_ATTITUDE * gain_ratio
+    else:
+        kp = C.KP_ATTITUDE
+        kd = C.KD_ATTITUDE
+
+    if max_torque is None:
+        max_torque = C.MAX_TORQUE
+
     # Proportional term: Kp * q_ev  (Document Section 17.6 adapted to body frame)
-    # Document defines: τ = -Kp · q_ev with q_e = q_cmd ⊗ q⁻¹ (inertial frame)
-    # Our code uses:    q_err = q⁻¹ ⊗ q_cmd (body frame), so q_ev is reversed
-    # Therefore, body-frame form is: τ = +Kp · q_ev_body
-    tau_p = C.KP_ATTITUDE * q_error_vector
+    tau_p = kp * q_error_vector
 
     # Derivative term: -Kd * ω_e  (where ω_e = ω since ω_cmd = 0)
-    tau_d = -C.KD_ATTITUDE * omega_limited
+    tau_d = -kd * omega_limited
 
-    return saturate_torque(tau_p + tau_d)
+    torque = tau_p + tau_d
+
+    # Saturate torque
+    torque_magnitude = np.linalg.norm(torque)
+    if torque_magnitude > max_torque:
+        torque = torque * (max_torque / torque_magnitude)
+
+    return torque
 
 
 def compute_control_torque(q_current: np.ndarray, omega: np.ndarray,
-                          desired_direction: np.ndarray) -> np.ndarray:
+                          desired_direction: np.ndarray,
+                          inertia: float = None,
+                          max_torque: float = None) -> np.ndarray:
     """
     Compute the control torque to track desired thrust direction.
 
-    Implements the Document §17.10 closed-loop sequence:
+    Implements the Document Section 17.10 closed-loop sequence:
     1. Compute guidance command q_cmd
     2. Compute quaternion error q_e
-    3. Compute angular velocity error ω_e
-    4. Compute control torque τ_cmd
+    3. Compute angular velocity error omega_e
+    4. Compute control torque tau_cmd
     5. Apply torque in rotational dynamics
 
     Args:
         q_current: Current orientation quaternion [w, x, y, z]
         omega: Current angular velocity in body frame (rad/s)
         desired_direction: Desired thrust direction (inertial frame)
+        inertia: Representative moment of inertia for gain scheduling (kg*m^2)
+        max_torque: Torque saturation limit (N*m)
 
     Returns:
         Control torque in body frame (N*m)
     """
-    # Step 1: Get commanded quaternion
     q_commanded = compute_commanded_quaternion(desired_direction)
-
-    # Step 2: Compute error quaternion vector part and apply PD control
     q_error_vector, error_angle = compute_attitude_error(q_current, q_commanded)
-    return pd_control_law(q_error_vector, error_angle, omega)
+    return pd_control_law(q_error_vector, error_angle, omega,
+                         inertia=inertia, max_torque=max_torque)
 
 
 def compute_control_output(q_current: np.ndarray, omega: np.ndarray,
-                          desired_direction: np.ndarray) -> ControlOutput:
+                          desired_direction: np.ndarray,
+                          inertia: float = None,
+                          max_torque: float = None) -> ControlOutput:
     """
     Compute full control output for logging and analysis.
-    
+
     Args:
         q_current: Current orientation quaternion [w, x, y, z]
         omega: Current angular velocity in body frame (rad/s)
         desired_direction: Desired thrust direction (inertial frame)
-        
+        inertia: Representative moment of inertia for gain scheduling (kg*m^2)
+        max_torque: Torque saturation limit (N*m)
+
     Returns:
         Dictionary containing control state and commands
     """
+    if max_torque is None:
+        max_torque = C.MAX_TORQUE
+
     q_commanded = compute_commanded_quaternion(desired_direction)
     q_error_vector, error_angle = compute_attitude_error(q_current, q_commanded)
-    torque = pd_control_law(q_error_vector, error_angle, omega)
+    torque = pd_control_law(q_error_vector, error_angle, omega,
+                           inertia=inertia, max_torque=max_torque)
 
     return {
         'q_commanded': q_commanded,
@@ -203,5 +240,5 @@ def compute_control_output(q_current: np.ndarray, omega: np.ndarray,
         'error_degrees': np.degrees(error_angle),
         'torque': torque,
         'torque_magnitude': np.linalg.norm(torque),
-        'saturated': np.linalg.norm(torque) >= C.MAX_TORQUE * 0.999  # 99.9% of max
+        'saturated': np.linalg.norm(torque) >= max_torque * 0.999
     }

@@ -36,10 +36,10 @@ STAGE1_DRY_MASS = 30000.0  # kg (includes landing fuel margin)
 STAGE1_PROPELLANT_MASS = 390000.0  # kg
 STAGE1_WET_MASS = 420000.0  # kg
 
-# Stage 2 Mass Properties (Table in A.11)
+# Stage 2 Mass Properties (Table 11, doc page 49)
 STAGE2_MASS = 120000.0  # kg (total S2 wet mass, constant during Phase I)
-STAGE2_DRY_MASS = 17000.0     # kg (S2 structure + avionics + payload adapter)
-STAGE2_PROPELLANT_MASS = 103000.0  # kg (LOX/RP-1)
+STAGE2_DRY_MASS = 8000.0      # kg (S2 structure, doc Table 11: mdry,2 = 8,000 kg)
+STAGE2_PROPELLANT_MASS = 112000.0  # kg (LOX/RP-1, doc Table 11: mprop,2 = 112,000 kg)
 STAGE2_WET_MASS = STAGE2_DRY_MASS + STAGE2_PROPELLANT_MASS  # 120,000 kg (verification)
 
 # Stacked Vehicle Mass (A.13)
@@ -252,20 +252,20 @@ ISP_VAC = 311.0  # S1 Vacuum specific impulse (s)
 # =============================================================================
 # LOX/RP-1 vacuum-optimized upper stage engine (Merlin Vacuum class)
 #
-# Delta-V budget:
-#   v_circular(200km) = sqrt(mu/(R_E+200km)) = 7788 m/s
+# Delta-V budget (doc Table 11, Table 12):
+#   v_circular(400km) = sqrt(mu/(R_E+400km)) = 7672 m/s
 #   v_at_separation ~= 2200 m/s (from S1 ascent gravity turn)
-#   Required dv ~= 5600 m/s + ~900 m/s gravity losses = 6500 m/s
-#   Available dv = 348 * 9.81 * ln(120000/17000) = 6669 m/s
-#   Margin: ~170 m/s (2.5%)
+#   Required dv ~= 5472 m/s + ~900 m/s gravity losses = 6372 m/s
+#   Available dv = 348 * 9.81 * ln(120000/8000) = 9253 m/s
+#   Margin: ~2881 m/s (45%) — large margin allows for non-ideal steering losses
 #
-# Engine specs (Merlin Vacuum class):
-#   Thrust: 981 kN (vacuum)
+# Engine specs (doc Table 12):
+#   Thrust: 950 kN (vacuum)
 #   Isp: 348 s (vacuum, LOX/RP-1 with high-expansion nozzle)
-#   Mass flow: 981000 / (348 * 9.81) = 287.3 kg/s
-#   Burn time: 103000 / 287.3 = 358.6 s
+#   Mass flow: 950000 / (348 * 9.81) = 278.2 kg/s
+#   Burn time: 112000 / 278.2 = 402.6 s
 #
-STAGE2_THRUST = 981000.0       # N (981 kN vacuum thrust) — single Merlin Vacuum class
+STAGE2_THRUST = 950000.0       # N (950 kN vacuum thrust, doc Table 12)
 STAGE2_ISP_VAC = 348.0         # s (LOX/RP-1 vacuum Isp, Merlin Vacuum class)
 STAGE2_MASS_FLOW_RATE = STAGE2_THRUST / (STAGE2_ISP_VAC * G0)  # ~287.3 kg/s
 STAGE2_BURN_TIME = STAGE2_PROPELLANT_MASS / STAGE2_MASS_FLOW_RATE  # ~358.6 s

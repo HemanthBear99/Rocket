@@ -150,16 +150,16 @@ def compute_inertia_tensor(m: float) -> np.ndarray:
         3x3 Inertia Tensor (kg*m^2)
     """
     if m < C.DRY_MASS:
-        # Post-separation S2 vehicle: much smaller inertia
-        # S2 is ~20m tall, ~3.7m diameter, mass 17000-120000 kg
-        # Ixx ≈ (1/12) * m * L^2 for a cylinder
-        # For m=120t, L=20m: Ixx ≈ 120000 * 400/12 ≈ 4.0e6 kg·m²
-        # For m=17t:  Ixx ≈ 17000 * 400/12 ≈ 5.7e5 kg·m²
+        # Post-separation S2 vehicle (doc §A.3.2)
+        # Doc specifies I2 = diag(2.5e6, 2.5e6, 4.0e5) at full S2 mass (120,000 kg)
+        # S2 is ~20m tall, ~3.7m diameter, mass 8000-120000 kg
+        # Ixx scales roughly linearly with mass for uniform cylinder
+        # For m=8t (dry):  Ixx ≈ 2.5e6 * (8000/120000) ≈ 1.67e5 kg·m²
         s2_frac = max(0.0, min(1.0, (m - C.STAGE2_DRY_MASS) / C.STAGE2_PROPELLANT_MASS))
-        ixx_s2_full = 4.0e6   # kg·m² (S2 wet)
-        ixx_s2_empty = 5.7e5  # kg·m² (S2 dry)
-        izz_s2_full = 5.0e5   # kg·m² (roll axis)
-        izz_s2_empty = 1.5e5  # kg·m²
+        ixx_s2_full = 2.5e6   # kg·m² (S2 wet, doc §A.3.2)
+        ixx_s2_empty = 1.67e5 # kg·m² (S2 dry, scaled from doc value)
+        izz_s2_full = 4.0e5   # kg·m² (roll axis, doc §A.3.2)
+        izz_s2_empty = 1.0e5  # kg·m² (scaled)
         ixx = ixx_s2_empty + s2_frac * (ixx_s2_full - ixx_s2_empty)
         izz = izz_s2_empty + s2_frac * (izz_s2_full - izz_s2_empty)
         return np.diag([ixx, ixx, izz])

@@ -1218,7 +1218,7 @@ def plot_quaternion_norm(data: TrajectoryData, output_dir: str) -> str:
     """
     fig, ax = plt.subplots()
 
-    norm_err = np.abs(data.quaternion_norm - 1.0)
+    norm_err = np.maximum(np.abs(data.quaternion_norm - 1.0), 1e-16)
     ax.semilogy(data.time, norm_err, color='#d62728', linewidth=1.8,
                 label='|  ||q|| - 1  |')
     ax.axhline(y=C.QUATERNION_NORM_TOL, color='orange', linestyle='--',

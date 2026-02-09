@@ -64,12 +64,13 @@ class TestDragEdgeCases(unittest.TestCase):
     """Edge case tests for drag model."""
     
     def test_zero_velocity(self):
-        """Zero velocity should give zero drag."""
+        """Zero air-relative velocity should give zero drag."""
         r = np.array([C.R_EARTH + 1000.0, 0.0, 0.0])
-        # Set velocity equal to wind (so relative velocity is zero)
+        # Set velocity = co-rotation + wind so air-relative velocity is zero
         omega_earth = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
-        v = np.cross(omega_earth, r)  # Co-rotating with atmosphere
-        
+        from rlv_sim.utils import _wind_vector
+        v = np.cross(omega_earth, r) + _wind_vector(r)
+
         F_drag = forces.compute_drag_force(r, v)
         np.testing.assert_array_almost_equal(F_drag, [0.0, 0.0, 0.0], decimal=8)
     

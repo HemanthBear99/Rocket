@@ -28,7 +28,7 @@ from .guidance import compute_guidance_output, reset_guidance
 from .control import compute_control_output
 from .integrators import integrate
 from .validation import validate_state, ValidationError, compute_total_energy, validate_energy_conservation
-from .mass import is_propellant_exhausted
+from .mass import is_propellant_exhausted, compute_inertia_tensor
 from .frames import rotate_vector_by_quaternion
 from .guidance import compute_local_vertical, compute_coast_guidance, compute_booster_guidance, compute_orbit_insertion_guidance
 from .actuator import ActuatorState, update_actuator
@@ -367,9 +367,25 @@ def simulation_step(state: State, actuator: ActuatorState, mission_mgr: MissionM
     actuator = update_actuator(actuator, desired_dir, dt)
     thrust_dir_cmd = actuator.thrust_dir
 
-    # Step 2: Attitude control
+    # Step 2: Attitude control with gain scheduling
+    # Compute current inertia for gain scaling so the controller maintains
+    # consistent bandwidth (omega_n ~ 1 rad/s, zeta ~ 0.7) across all vehicle
+    # configurations (S1 stacked at 540 t down to S2 dry at 17 t).
+    I_tensor = compute_inertia_tensor(state.m)
+    inertia_repr = I_tensor[0, 0]  # Ixx — representative pitch/yaw inertia
+
+    # Stage-appropriate torque limit:
+    # S1: 7.6 MN thrust * 3.7m arm * 0.7 leverage = ~20 MN·m (use 30 MN·m with margin)
+    # S2: 981 kN thrust * 2.0m arm * 0.7 leverage = ~1.4 MN·m (use 2 MN·m with margin)
+    if stage == 2:
+        stage_max_torque = 2.0e6  # 2 MN·m — S2 gimbal + RCS authority
+    else:
+        stage_max_torque = C.MAX_TORQUE  # 30 MN·m — S1 multi-engine gimbal
+
     control = compute_control_output(
-        state.q, state.omega, thrust_dir_cmd
+        state.q, state.omega, thrust_dir_cmd,
+        inertia=inertia_repr,
+        max_torque=stage_max_torque
     )
 
     # Step 3: Integration (with correct engine stage parameters)
@@ -508,12 +524,12 @@ def run_simulation(initial_state: Optional[State] = None, dt: float = None, max_
             # Vehicle mass drops from ~192,000 kg to 120,000 kg
             s2_mass = C.STAGE2_WET_MASS
 
-            # At separation, angular momentum transfers but inertia changes dramatically.
-            # The separation springs impart a small delta-omega, but the main effect is
-            # that the lighter S2 will have higher omega for the same angular momentum.
-            # To prevent instability, we damp the angular velocity (physically: S2 has
-            # its own RCS thrusters that actively null rates after separation).
-            omega_damped = state.omega * 0.1  # RCS rate nulling
+            # At separation, both stages were rigidly connected and rotating together.
+            # The S2 inherits the same angular velocity as the combined stack.
+            # Although the inertia drops dramatically, the S2 controller (with gain
+            # scheduling) will adapt its gains to the new inertia automatically.
+            # A small damping factor accounts for separation spring perturbation.
+            omega_damped = state.omega * 0.5  # Moderate damping from separation springs
 
             state_dict = {
                 'r': state.r.copy(),
@@ -536,7 +552,7 @@ def run_simulation(initial_state: Optional[State] = None, dt: float = None, max_
                        f"landing fuel={C.STAGE1_LANDING_FUEL_RESERVE:.0f}kg)")
             if verbose:
                 print(f"  *** STAGE SEPARATION: {mass_before:.0f} -> {state.m:.0f} kg | "
-                      f"Switched to S2 engine (590 kN, Isp={C.STAGE2_ISP_VAC}s)")
+                      f"Switched to S2 engine ({C.STAGE2_THRUST/1e3:.0f} kN, Isp={C.STAGE2_ISP_VAC}s)")
 
         # Execute timestep
         state, guidance, control, actuator = simulation_step(

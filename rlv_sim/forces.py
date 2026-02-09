@@ -338,8 +338,15 @@ def compute_total_force(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     """
     F_grav = compute_gravity_force(r, m)
     F_thrust = compute_thrust_force(q, r, thrust_on, stage=stage)
-    F_drag = compute_drag_force(r, v)
-    F_lift = compute_lift_force(r, v, q)
+
+    if stage == 2:
+        # Doc §D.7: "Aerodynamic drag is neglected due to near-vacuum conditions"
+        # S2 operates above ~110 km where atmosphere is negligible
+        F_drag = np.zeros(3)
+        F_lift = np.zeros(3)
+    else:
+        F_drag = compute_drag_force(r, v)
+        F_lift = compute_lift_force(r, v, q)
 
     return F_grav + F_thrust + F_drag + F_lift
 
@@ -378,8 +385,14 @@ def compute_specific_forces(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     """
     F_grav = compute_gravity_force(r, m)
     F_thrust = compute_thrust_force(q, r, thrust_on, stage=stage)
-    F_drag = compute_drag_force(r, v)
-    F_lift = compute_lift_force(r, v, q)
+
+    if stage == 2:
+        # Doc §D.7: drag neglected in near-vacuum (consistent with compute_total_force)
+        F_drag = np.zeros(3)
+        F_lift = np.zeros(3)
+    else:
+        F_drag = compute_drag_force(r, v)
+        F_lift = compute_lift_force(r, v, q)
 
     return {
         'gravity': F_grav,

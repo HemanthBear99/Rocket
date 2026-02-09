@@ -272,10 +272,17 @@ class MissionManager:
 
             elif s2_prop_exhausted:
                 perigee = a_sma * (1 - ecc) - C.R_EARTH if a_sma > 0 else 0
-                logger.warning(f"S2 PROPELLANT EXHAUSTED at t={state.t:.2f}s, "
-                              f"e={ecc:.4f}, V_deficit={v_deficit:.0f}m/s, "
-                              f"Perigee={perigee/1000:.0f}km")
-                self.current_phase = MissionPhase.ORBIT_ACHIEVED  # End even if not perfect
+                if perigee > 80000.0 and ecc < 0.1:
+                    logger.warning(f"S2 PROPELLANT EXHAUSTED at t={state.t:.2f}s "
+                                  f"(marginal orbit), e={ecc:.4f}, "
+                                  f"V_deficit={v_deficit:.0f}m/s, "
+                                  f"Perigee={perigee/1000:.0f}km")
+                else:
+                    logger.error(f"S2 PROPELLANT EXHAUSTED at t={state.t:.2f}s "
+                                f"(ORBIT INSERTION FAILED), e={ecc:.4f}, "
+                                f"V_deficit={v_deficit:.0f}m/s, "
+                                f"Perigee={perigee/1000:.0f}km")
+                self.current_phase = MissionPhase.ORBIT_ACHIEVED
                 self._phase_entry_time = state.t
 
         # =====================================================================

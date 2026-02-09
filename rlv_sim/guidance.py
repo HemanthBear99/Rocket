@@ -11,6 +11,74 @@ from .types import GuidanceOutput
 from .utils import compute_relative_velocity
 
 
+def _limit_aoa(thrust_dir: np.ndarray, velocity: np.ndarray,
+               max_aoa_rad: float) -> np.ndarray:
+    """
+    Limit angle-of-attack: cap the angle between thrust direction and velocity.
+
+    If the angle between thrust_dir and velocity exceeds max_aoa_rad,
+    rotate thrust_dir toward velocity until the angle equals max_aoa_rad.
+
+    This prevents structural loads (high Q·alpha) during atmospheric flight
+    and keeps attitude error bounded during phase transitions.
+
+    Args:
+        thrust_dir: Desired thrust direction (unit vector)
+        velocity: Velocity vector (does not need to be unit)
+        max_aoa_rad: Maximum allowed angle-of-attack (radians)
+
+    Returns:
+        AoA-limited thrust direction (unit vector)
+    """
+    v_norm = np.linalg.norm(velocity)
+    if v_norm < 10.0:
+        return thrust_dir  # AoA undefined at low speed
+
+    v_hat = velocity / v_norm
+    cos_aoa = np.clip(np.dot(thrust_dir, v_hat), -1.0, 1.0)
+    aoa = np.arccos(cos_aoa)
+
+    if aoa <= max_aoa_rad:
+        return thrust_dir  # Already within limit
+
+    # Rotate thrust_dir toward v_hat to reduce AoA to max_aoa_rad
+    # Use Rodrigues rotation about the axis perpendicular to both
+    axis = np.cross(v_hat, thrust_dir)
+    axis_norm = np.linalg.norm(axis)
+    if axis_norm < 1e-9:
+        return thrust_dir  # Parallel or anti-parallel
+
+    axis = axis / axis_norm
+    # New direction: rotate v_hat away by max_aoa_rad in the thrust_dir direction
+    limited = (v_hat * np.cos(max_aoa_rad)
+               + np.cross(axis, v_hat) * np.sin(max_aoa_rad)
+               + axis * np.dot(axis, v_hat) * (1.0 - np.cos(max_aoa_rad)))
+    limited_norm = np.linalg.norm(limited)
+    if limited_norm > 1e-9:
+        limited /= limited_norm
+    return limited
+
+
+# Module-level state for orbit insertion ramp-in and phase continuity
+_oi_state = {
+    'start_time': None,
+    'start_direction': None,
+    'last_ascent_direction': None,  # Last commanded direction from S1 ascent
+    'prev_cmd_direction': None,
+    'coast_start_time': None,
+}
+
+
+def reset_oi_state():
+    """Reset orbit insertion guidance state. Called between simulation runs."""
+    global _oi_state
+    _oi_state['start_time'] = None
+    _oi_state['start_direction'] = None
+    _oi_state['last_ascent_direction'] = None
+    _oi_state['prev_cmd_direction'] = None
+    _oi_state['coast_start_time'] = None
+
+
 def compute_local_vertical(r: np.ndarray) -> np.ndarray:
     r_norm = np.linalg.norm(r)
     if r_norm < C.ZERO_TOLERANCE:
@@ -120,6 +188,7 @@ def reset_guidance():
     global _pid_state
     _pid_state['prev_gamma_meas'] = 90.0
     _pid_state['gamma_int'] = 0.0
+    reset_oi_state()
 
 
 def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt: float = C.DT):
@@ -217,7 +286,21 @@ def compute_desired_thrust_direction(r: np.ndarray, v: np.ndarray, t: float, dt:
         thrust_dir_mixed = guidance_dir
         
     thrust_dir = thrust_dir_mixed
-    
+
+    # -------------------------------------------------------------------------
+    # 5. AoA limiting: cap angle between thrust and velocity
+    # -------------------------------------------------------------------------
+    # During atmospheric flight (high Q), limit AoA to prevent structural loads.
+    # Above atmosphere, use a wider limit to allow guidance freedom.
+    if q_dyn > 5000.0:
+        max_aoa = np.radians(3.0)   # 3 deg during high-Q
+    elif altitude < 50000.0:
+        max_aoa = np.radians(5.0)   # 5 deg in lower atmosphere
+    else:
+        max_aoa = np.radians(10.0)  # 10 deg above atmosphere
+
+    thrust_dir = _limit_aoa(thrust_dir, v_rel, max_aoa)
+
     # Update gamma_cmd simply for logging (what are we actually commanding?)
     # We back-calculate the effective command from our final vector
     cos_p = np.dot(thrust_dir, vertical)
@@ -278,6 +361,10 @@ def compute_guidance_output(r: np.ndarray, v: np.ndarray, t: float, m: float,
     else:
         prograde = v_rel / v_rel_norm
 
+    # Record last ascent direction for coast/orbit insertion phase continuity
+    global _oi_state
+    _oi_state['last_ascent_direction'] = thrust_dir.copy()
+
     vertical = compute_local_vertical(r)
     cos_pitch = np.clip(np.dot(vertical, thrust_dir), -1.0, 1.0)
     pitch_angle = float(np.arccos(cos_pitch))
@@ -308,30 +395,26 @@ def compute_orbit_insertion_guidance(r: np.ndarray, v: np.ndarray, t: float, m: 
     """
     Guidance logic for S2 orbit insertion burn.
 
-    Steering law: TWR-adaptive pitch program with altitude feedback.
-
-    The S2 engine has TWR < 1 at ignition (0.50 at 120 t), increasing to
-    TWR = 3.5 at burnout (17 t). The pitch program must balance:
-    - Building horizontal velocity (requires low pitch = near horizontal)
-    - Preventing excessive altitude loss (requires high pitch = near vertical)
+    Steering law: flight-path-angle-tracking pitch program with altitude feedback.
 
     Strategy:
-    The pitch angle above local horizontal is computed in two parts:
+    Instead of commanding pitch above local horizontal (which can differ by 40+
+    degrees from the current flight path angle at ignition), we blend from the
+    current prograde direction toward a target pitch. This ensures bounded
+    attitude error (<5 deg) through the transition.
 
-    1. BASE PITCH from velocity progress toward circular:
-       As v_horizontal approaches v_circular, pitch decreases from ~40 deg to 0.
-       pitch_base = 40 * (1 - v_h/v_circ)^0.6  [degrees]
+    1. RAMP-IN (first 30s): Smoothstep blend from gamma_current (prograde)
+       to the target pitch program. The body stays close to prograde initially.
 
-    2. ALTITUDE FEEDBACK correction:
-       - If radial velocity is negative (descending), add upward bias
-       - If altitude drops below minimum safe threshold, increase bias
-       - This prevents the perigee from dropping into the atmosphere
+    2. TARGET PITCH from velocity progress toward circular:
+       pitch_target = 8 * (1 - v_h/v_circ)^0.4 degrees above horizontal.
+       Starts at ~7 deg when v_h/v_circ ~ 0.16, decreases to 0 at orbital speed.
 
-    The result is a smooth pitch program that:
-    - Starts steep (~40 deg) to gain altitude and arrest the natural fall
-    - Gradually flattens as horizontal velocity increases
-    - Goes nearly horizontal near orbital velocity
-    - Uses altitude feedback as a safety net
+    3. ALTITUDE FEEDBACK: descent rate proportional correction + altitude
+       floor protection below 100 km.
+
+    4. TERMINAL FLATTENING: pitch below horizontal to arrest radial velocity
+       as v_deficit < 4000 m/s.
 
     Termination: v_circular reached OR S2 propellant exhausted.
     """
@@ -357,57 +440,95 @@ def compute_orbit_insertion_guidance(r: np.ndarray, v: np.ndarray, t: float, m: 
         horiz_hat = east
 
     # =========================================================================
-    # TWR-ADAPTIVE PITCH PROGRAM
+    # TWR-ADAPTIVE PITCH PROGRAM WITH PROGRADE-RELATIVE STEERING
     # =========================================================================
+    # The pitch program commands a pitch offset BELOW the current prograde
+    # (velocity) direction, ramping from 0 (pure prograde) to the full pitch
+    # program. This ensures:
+    # 1. At ignition, the commanded direction matches the body attitude (prograde)
+    # 2. The pitch-down toward horizontal happens gradually as v_progress grows
+    # 3. Attitude error stays bounded because the command tracks the velocity
+
+    global _oi_state
+    if _oi_state['start_time'] is None:
+        _oi_state['start_time'] = t
+        if _oi_state['last_ascent_direction'] is not None:
+            _oi_state['start_direction'] = _oi_state['last_ascent_direction'].copy()
+        elif v_inertial > 10.0:
+            _oi_state['start_direction'] = v / v_inertial
+        else:
+            _oi_state['start_direction'] = vertical.copy()
+
+    # Prograde direction (inertial velocity)
+    if v_inertial > 10.0:
+        prograde = v / v_inertial
+    else:
+        prograde = vertical
 
     # Progress toward circular velocity (0 = just started, 1 = orbital)
     v_progress = float(np.clip(v_horiz / v_circular, 0.0, 1.0))
 
-    # Base pitch angle (degrees above horizontal)
-    # Starts at ~15 deg when v_h/v_circ ~ 0.28 (separation velocity)
-    # Decreases to 0 as v_h approaches v_circ
-    # With TWR=0.83, we need most thrust going horizontal to reach orbit.
-    # The small positive pitch angle prevents rapid altitude loss.
-    pitch_base_deg = 15.0 * (1.0 - v_progress) ** 0.4
+    # Current flight path angle (for reference)
+    gamma_current = float(np.degrees(np.arctan2(v_radial, max(v_horiz, 1.0))))
+
+    # Target pitch offset BELOW prograde (degrees to pitch down from velocity)
+    # At ignition (gamma~55°), the target pitch above horizontal is ~8°,
+    # so we need to pitch down by gamma - 8 = 47° from prograde.
+    # But we ramp this gradually so the controller can track.
+    pitch_target_above_horiz = 6.0 * (1.0 - v_progress) ** 0.5
 
     # Altitude feedback: arrest descent rate
-    # If vehicle is descending, add pitch-up correction
     pitch_correction_deg = 0.0
     if v_radial < 0.0:
-        # Proportional to descent rate: 1 m/s descent -> 0.15 deg correction
         pitch_correction_deg += min(15.0, -v_radial * 0.15)
 
-    # Altitude floor protection: if altitude drops below safe threshold,
-    # add strong upward bias to arrest descent
-    min_safe_alt = 80000.0  # 80 km — above atmosphere
+    # Altitude floor protection
+    min_safe_alt = 80000.0
     if altitude < min_safe_alt + 20000.0:
-        # Ramp up correction as altitude approaches floor
-        alt_margin = (altitude - min_safe_alt) / 20000.0  # 1.0 at 100km, 0 at 80km
+        alt_margin = (altitude - min_safe_alt) / 20000.0
         alt_margin = float(np.clip(alt_margin, 0.0, 1.0))
         pitch_correction_deg += 20.0 * (1.0 - alt_margin)
 
-    # Terminal flattening: when approaching orbital velocity, actively
-    # reduce radial velocity by steering below horizontal.
-    # This ensures the orbit circularizes (low eccentricity) rather than
-    # being highly elliptical with a low perigee.
-    # Start early (3000 m/s deficit) and increase aggressiveness linearly.
+    # Terminal flattening: reduce radial velocity near orbital speed
     if v_deficit < 4000.0 and v_radial > 10.0:
-        # Pitch DOWN below horizontal to arrest radial velocity
-        # The closer to orbital speed, the more aggressively we flatten
         flatten_factor = float(np.clip(1.0 - v_deficit / 4000.0, 0.0, 1.0))
-        # Pitch down proportional to radial velocity and proximity to v_circular
         pitch_down_deg = flatten_factor * min(20.0, v_radial * 0.05)
-        pitch_base_deg -= pitch_down_deg
+        pitch_target_above_horiz -= pitch_down_deg
 
-    # Total pitch angle
-    pitch_cmd_deg = pitch_base_deg + pitch_correction_deg
-    pitch_cmd_deg = float(np.clip(pitch_cmd_deg, -10.0, 75.0))  # Allow slight negative (below horizontal)
-    pitch_cmd_rad = np.radians(pitch_cmd_deg)
+    pitch_target_above_horiz += pitch_correction_deg
+    pitch_target_above_horiz = float(np.clip(pitch_target_above_horiz, -10.0, 75.0))
 
-    # Compute thrust direction from pitch angle
-    # pitch_cmd_rad is angle above local horizontal
-    desired_dir = np.cos(pitch_cmd_rad) * horiz_hat + np.sin(pitch_cmd_rad) * vertical
-    desired_dir = desired_dir / np.linalg.norm(desired_dir)
+    # Compute the target pitch angle (what the pitch program wants)
+    pitch_target_deg = pitch_target_above_horiz
+    pitch_target_deg = float(np.clip(pitch_target_deg, -10.0, 75.0))
+    pitch_target_rad = np.radians(pitch_target_deg)
+
+    # Target direction from the pitch program (what we're ultimately aiming for)
+    target_dir = np.cos(pitch_target_rad) * horiz_hat + np.sin(pitch_target_rad) * vertical
+    target_dir = target_dir / np.linalg.norm(target_dir)
+
+    # Single unified blend: from last-ascent-direction to pitch-program target.
+    # This handles both the ~10 deg gap from ascent→prograde AND the ~45 deg
+    # gap from prograde→horizontal in one smooth transition.
+    dt_since_start = t - _oi_state['start_time']
+    ramp_duration = 20.0
+
+    if dt_since_start < ramp_duration and _oi_state['start_direction'] is not None:
+        x = dt_since_start / ramp_duration
+        blend = x * x * (3.0 - 2.0 * x)  # Smoothstep
+        start_dir = _oi_state['start_direction']
+        blended = (1.0 - blend) * start_dir + blend * target_dir
+        blended_norm = np.linalg.norm(blended)
+        if blended_norm > 1e-9:
+            desired_dir = blended / blended_norm
+        else:
+            desired_dir = target_dir
+    else:
+        desired_dir = target_dir
+
+    # AoA limiting: cap angle between thrust and velocity
+    max_aoa = np.radians(15.0)
+    desired_dir = _limit_aoa(desired_dir, v, max_aoa)
 
     # S2 propellant remaining
     s2_prop_remaining = m - C.STAGE2_DRY_MASS
@@ -463,17 +584,38 @@ def compute_coast_guidance(r: np.ndarray, v: np.ndarray, t: float, m: float) -> 
     Guidance logic for Phase II (Coast).
 
     - Thrust: OFF
-    - Attitude: Prograde (aligned with relative velocity)
+    - Attitude: Hold last ascent direction, then blend toward inertial prograde.
+
+    During coast, the engine is off so thrust direction is irrelevant for
+    trajectory. However, the attitude command matters for phase continuity:
+    if we instantly command prograde, the body must rotate ~10 deg from
+    the last guided pitch angle. Instead, we hold the last ascent direction
+    for the first 3 seconds (while the body catches up), then smoothly
+    transition to inertial prograde for orbit insertion readiness.
     """
     altitude = float(np.linalg.norm(r) - C.R_EARTH)
     v_rel = compute_relative_velocity(r, v)
     v_rel_norm = float(np.linalg.norm(v_rel))
-    
-    # 1. Orientation: Align with Velocity Vector (Prograde)
-    if v_rel_norm > 1.0:
-        desired_dir = v_rel / v_rel_norm
+    v_inertial = float(np.linalg.norm(v))
+
+    # 1. Orientation: Hold last ascent direction (for smooth handoff to OI)
+    # During coast, thrust is off so attitude doesn't affect trajectory.
+    # We hold the last ascent direction to maintain zero attitude error through
+    # the coast/separation phase. The OI guidance handles the transition from
+    # last-ascent-direction to prograde-relative steering.
+    global _oi_state
+    if v_inertial > 1.0:
+        prograde = v / v_inertial
     else:
-        desired_dir = compute_local_vertical(r)
+        prograde = compute_local_vertical(r)
+
+    if _oi_state['last_ascent_direction'] is not None:
+        desired_dir = _oi_state['last_ascent_direction'].copy()
+        # AoA limit: don't let the held direction diverge too far from velocity
+        max_aoa = np.radians(15.0)
+        desired_dir = _limit_aoa(desired_dir, v, max_aoa)
+    else:
+        desired_dir = prograde
         
     vertical = compute_local_vertical(r)
     cos_pitch = np.clip(np.dot(vertical, desired_dir), -1.0, 1.0)
