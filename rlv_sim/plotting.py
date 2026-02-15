@@ -2999,7 +2999,7 @@ def generate_all_plots(log, output_dir: str = "plots") -> List[str]:
         
     Example:
         >>> from rlv_sim.main import run_simulation
-        >>> from scripts.plot_generator import generate_all_plots
+        >>> from rlv_sim.plotting import generate_all_plots
         >>> state, log, reason = run_simulation()
         >>> plot_files = generate_all_plots(log, "output/plots")
         >>> print(f"Generated {len(plot_files)} plots")
