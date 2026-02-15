@@ -83,7 +83,7 @@ def main():
             logger.info(f"Generating plots in {plot_dir}")
             print(f">> Generating Plots in: {plot_dir}")
             
-            plotting.generate_all_plots(log, final_state, plot_dir)
+            plotting.generate_all_plots(log, plot_dir)
             
             print("\n" + "="*70)
             print("SUCCESS: Simulation and Plotting Complete.")

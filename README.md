@@ -2,6 +2,7 @@
 
 ![RLV Banner](docs/assets/banner.png)
 
+[![CI](https://github.com/HemanthBear99/Rocket/actions/workflows/ci.yml/badge.svg)](https://github.com/HemanthBear99/Rocket/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Physics](https://img.shields.io/badge/Physics-6--DOF-purple.svg?style=for-the-badge)](docs/RLV_Developer_3.txt)
 [![Status](https://img.shields.io/badge/Status-Development-orange.svg?style=for-the-badge)](https://github.com/HemanthBear99/Rocket)
@@ -13,7 +14,7 @@ This project is a dedicated **6-Degree-of-Freedom (6-DOF) simulation** I develop
 *Note: This codebase is a personal development initiative to assist with mission analysis, focusing on pure technical accuracy and deterministic physics.*
 
 ---
-## 🛠️ Engineering Implementation
+## Engineering Implementation
 
 This isn't just a script; it's a physics engine. I built it from the ground up to handle the non-linear dynamics of launch vehicles:
 
@@ -32,28 +33,35 @@ This isn't just a script; it's a physics engine. I built it from the ground up t
 
 ---
 
-## 📂 Code Structure
+## Code Structure
 
 I organized the codebase for clarity and modularity, making it easy to isolate and debug specific physics modules:
 
 ```
-d:\rocket\Phase-I
+Rocket/
 ├── rlv_sim/
 │   ├── main.py         # Simulation Loop & Entry Point
 │   ├── dynamics.py     # Equations of Motion (6-DOF)
 │   ├── forces.py       # Physics Models (Gravity, Drag, Thrust)
 │   ├── guidance.py     # Ascent Guidance Algorithms
 │   ├── control.py      # Attitude Control Logic
-│   └── integrators.py  # Numerical Solvers
-├── scripts/            # Analysis Tools
-└── plots/              # Output Data
+│   ├── integrators.py  # Numerical Solvers
+│   ├── plotting.py     # Visualization & Plot Generation
+│   ├── cli.py          # Command-Line Interface
+│   └── ...             # Additional physics modules
+├── tests/              # 262 Unit & Integration Tests
+├── plots/              # Auto-generated simulation output
+├── docs/               # Technical documentation
+└── pyproject.toml      # Project configuration
 ```
 
 ---
 
-## 📊 Ascent Results (Phase I)
+## Ascent Results (Phase I)
 
 The simulation successfully demonstrates a nominal ascent profile from Liftoff to Main Engine Cut-Off (MECO).
+
+> Plots are **auto-regenerated** by CI on every push to `main` so the images below always reflect the latest simulation code.
 
 ### 1. Ascent Profile Dashboard
 *Combined view of Altitude, Velocity, Mass, and Pitch.*
@@ -67,7 +75,7 @@ The simulation successfully demonstrates a nominal ascent profile from Liftoff t
 *Physics verification: γ starts at 90° (Vertical) and decreases during Gravity Turn.*
 ![Flight Path Angle](plots/11_flight_path_angle.png)
 
-## 📋 Simulation Metrics
+## Simulation Metrics
 
 | Parameter | Value (approx) | Description |
 | :--- | :--- | :--- |
@@ -78,30 +86,47 @@ The simulation successfully demonstrates a nominal ascent profile from Liftoff t
 
 ---
 
-## ⚡ Running the Simulation
+## Running the Simulation
 
 To replicate these results or test new parameters:
 
-1.  **Install Dependencies:**
+1.  **Install:**
     ```bash
-    python -m pip install -r requirements.txt
+    pip install -e .
     ```
 
-2.  **Launch:**
+2.  **Launch simulation with plots:**
     ```bash
-    python -m rlv_sim.main
+    rlv-simulate
+    ```
+    Or equivalently:
+    ```bash
+    python -m rlv_sim.cli
     ```
 
-3.  **Visualize:**
+3.  **Launch simulation only (no plots):**
     ```bash
-    python scripts/plot_generator.py
+    rlv-simulate --no-plots
     ```
-4. **CSV**
-```bash
-     python -c "from rlv_sim.main import run_simulation; s, log, r = run_simulation(verbose=False); log.to_csv('plots/full_telemetry.csv')"
-```
+
+4.  **Generate plots from Python:**
+    ```python
+    from rlv_sim.main import run_simulation
+    from rlv_sim.plotting import generate_all_plots
+
+    state, log, reason = run_simulation(verbose=False)
+    generate_all_plots(log, "plots")
+    ```
+
+5. **Export telemetry to CSV:**
+    ```bash
+    python -c "from rlv_sim.main import run_simulation; s, log, r = run_simulation(verbose=False); log.to_csv('plots/full_telemetry.csv')"
+    ```
 
 ---
+
+## Mission Parameters
+
 - Booster recovery target: soft landing (`touchdown air-relative speed < 5 m/s`).
 - Optional strict RTLS pad-hit check:
   - `booster_enforce_pad_landing=True`
@@ -115,24 +140,17 @@ To replicate these results or test new parameters:
   - orbital eccentricity `e <= 0.01`
 - Atmosphere model: deterministic layered US-76 through 84.852 km with continuous upper-atmosphere extension.
 
-## Mission Audit
+## Full Mission Demo
 
-Run a reproducible full-mission audit report:
+Run a full mission simulation with booster recovery and orbit insertion:
 
 ```bash
-python scripts/mission_audit.py --dt 0.05 --max-time 1200
+python run_demo.py
 ```
-
-The report includes:
-
-- phase transitions
-- propellant usage by booster phase
-- booster apogee and landing speed
-- final orbital elements (a, e, perigee, apogee)
 
 ## Booster Recovery Plots
 
-`python scripts/plot_generator.py` includes dedicated booster diagnostics:
+Running the simulation generates dedicated booster recovery diagnostics:
 
 - `61_booster_altitude_profile.png`
 - `62_booster_velocity_profile.png`
@@ -140,3 +158,10 @@ The report includes:
 - `64_booster_velocity_components.png`
 - `65_booster_ignition_prediction.png`
 - `66_booster_phase_fuel_budget.png`
+
+## Running Tests
+
+```bash
+pip install -e .[dev]
+python -m pytest
+```
