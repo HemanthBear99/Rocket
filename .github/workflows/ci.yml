@@ -23,9 +23,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           pip install -e .[dev]
+          python -c "import sys; print(sys.path)"
+          python -c "import rlv_sim; print('Package installed at:', rlv_sim.__file__)"
 
       - name: Run tests
         run: |
-          pytest
+          python -m pytest
