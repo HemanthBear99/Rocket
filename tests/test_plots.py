@@ -16,7 +16,7 @@ import numpy as np
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from scripts.plot_generator import (
+from rlv_sim.plotting import (
     generate_all_plots,
     extract_log_data,
     compute_gravity_turn_start,
