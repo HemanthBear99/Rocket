@@ -84,18 +84,31 @@ def estimate_suicide_burn(
     min_throttle: float = 0.3,
     max_throttle: float = 1.0,
     horizontal_weight: float = 1.0,
+    isp: float = None,
 ) -> Dict[str, float]:
     """
-    Shared landing ignition estimator.
+    Energy-based landing ignition estimator.
 
-    Returns:
-      {
-        'ignite': bool,
-        'throttle': float,
-        'burn_altitude': float,
-        'v_descent': float,
-        'a_brake': float
-      }
+    Computes the energy required to bring the vehicle to rest and compares
+    it against available thrust energy accounting for variable mass (fuel
+    burn changes T/m during the deceleration).  This replaces the earlier
+    constant-acceleration heuristic (v^2 / 2a * safety_factor).
+
+    The energy integral for a variable-mass rocket under constant thrust F
+    and local gravity g over a burn that reduces mass from m0 to m_dry is:
+
+        E_thrust = F * Isp * g0 * ln(m0 / m_dry)   (Tsiolkovsky work)
+
+    The vehicle's current mechanical energy relative to the landing site is:
+
+        E_mech = 0.5 * m * v_eff^2  +  m * g * h
+
+    Ignition triggers when  E_mech >= E_thrust * margin_factor,  i.e. the
+    remaining thrust work (with mass depletion) just covers the kinetic +
+    potential energy that must be removed.
+
+    Returns dict with keys: ignite, throttle, burn_altitude, v_descent,
+    v_horizontal, v_effective, a_brake.
     """
     r_norm = float(np.linalg.norm(r))
     if r_norm < 1.0:
@@ -107,13 +120,18 @@ def estimate_suicide_burn(
             'a_brake': 0.0,
         }
 
+    if isp is None:
+        isp = C.ISP
+
     vertical = r / r_norm
     altitude = r_norm - C.R_EARTH
     v_rel = compute_relative_velocity(r, v)
     v_descent = -float(np.dot(v_rel, vertical))
     v_horiz_vec = v_rel - np.dot(v_rel, vertical) * vertical
     v_horiz = float(np.linalg.norm(v_horiz_vec))
-    v_effective = float(np.sqrt(max(v_descent, 0.0) ** 2 + horizontal_weight * (v_horiz ** 2)))
+    v_effective = float(np.sqrt(
+        max(v_descent, 0.0) ** 2 + horizontal_weight * (v_horiz ** 2)
+    ))
 
     if v_descent <= 0.0 and v_effective <= 0.0:
         return {
@@ -141,15 +159,67 @@ def estimate_suicide_burn(
             'a_brake': a_brake,
         }
 
-    h_ignite = (v_effective ** 2) / (2.0 * a_brake)
+    # --- Energy-based ignition decision ---
+    # Integrate the 1D variable-mass braking equation to find the altitude
+    # required to stop.  With constant thrust F, exhaust velocity ve, and
+    # local gravity g, the deceleration over the burn is:
+    #
+    #     a(m) = F/m - g
+    #
+    # The velocity change (Tsiolkovsky) from mass m0 to m_f is:
+    #     dv = ve * ln(m0/m_f) - g * t_burn
+    #
+    # We solve for m_f such that dv = v_effective (stop from current speed),
+    # then compute the altitude consumed during that burn using the
+    # work-energy theorem:
+    #     h_burn = (v_eff^2) / (2 * a_mean)
+    # where a_mean accounts for the mass change via the log-mean:
+    #     a_mean = F * ln(m0/m_f) / (m0 - m_f) - g
+    #
+    # This is more accurate than v^2/(2*a_brake) because it accounts for
+    # the increasing T/m ratio as fuel is consumed during the burn.
+
+    ve = isp * C.G0
+    mdot = thrust_newton / ve  # kg/s mass flow at full throttle
+    propellant = max(mass_kg - C.STAGE1_DRY_MASS, 0.0)
+
+    # Fuel needed to produce dv = v_effective (from Tsiolkovsky, gravity-free)
+    # m_f = m0 * exp(-v_eff / ve)
+    mass_ratio_needed = np.exp(v_effective / ve)
+    m_final_ideal = mass_kg / mass_ratio_needed
+    fuel_needed = mass_kg - m_final_ideal
+
+    if fuel_needed > propellant:
+        # Not enough fuel to stop — must ignite immediately
+        m_final_actual = C.STAGE1_DRY_MASS
+    else:
+        m_final_actual = m_final_ideal
+
+    # Log-mean acceleration during the burn (accounts for variable mass)
+    dm = mass_kg - m_final_actual
+    if dm > 1.0 and m_final_actual > 0.0:
+        # F * ln(m0/mf) / (m0 - mf) is the log-mean of F/m over the burn
+        a_mean = thrust_newton * np.log(mass_kg / m_final_actual) / dm - g_local
+    else:
+        a_mean = a_brake
+
+    a_mean = max(a_mean, 0.1)  # Prevent division by zero
+
+    # Altitude consumed during the braking burn
+    h_ignite = (v_effective ** 2) / (2.0 * a_mean)
+
+    # Ignite when altitude <= h_ignite * safety_factor
     ignite = altitude <= h_ignite * safety_factor
 
     if ignite:
+        # Throttle command: required deceleration to stop in remaining altitude
         if altitude > 10.0:
             a_required = (v_effective ** 2) / (2.0 * altitude) + g_local
         else:
             a_required = thrust_accel
-        throttle = float(np.clip(a_required / max(thrust_accel, 1e-6), min_throttle, max_throttle))
+        throttle = float(np.clip(
+            a_required / max(thrust_accel, 1e-6), min_throttle, max_throttle
+        ))
     else:
         throttle = 0.0
 

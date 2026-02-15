@@ -705,23 +705,51 @@ def compute_booster_guidance(
     elif phase == "BOOSTER_LANDING":
         burn_params = burn_prediction
 
-        v_descent = -float(np.dot(v, vertical))
-        v_horiz_vec = v - np.dot(v, vertical) * vertical
+        v_descent = -float(np.dot(v_rel, vertical))
+        v_horiz_vec = v_rel - np.dot(v_rel, vertical) * vertical
         v_horiz_mag = float(np.linalg.norm(v_horiz_vec))
-        v_total = float(np.linalg.norm(v))
 
         if burn_params['ignite']:
             gs.booster_landing_burn_started = True
-            # Powered descent follows air-relative retrograde so touchdown
-            # converges in the rotating Earth frame.
-            desired_dir = retrograde if v_rel_norm > 1.0 else vertical
+
+            # --- Lateral velocity zeroing ---
+            # Blend thrust direction from retrograde toward vertical as
+            # horizontal velocity decreases.  This drives v_horizontal -> 0
+            # at touchdown instead of just pointing retrograde.
+            #
+            # At high v_horiz (>200 m/s): steer at atan(v_h/v_d) to kill both
+            # At low v_horiz (<1 m/s):    pure vertical for final descent
+            # Uses air-relative velocity so touchdown converges in the
+            # rotating Earth frame.
+            if v_horiz_mag > 1.0 and v_descent > 1.0:
+                horiz_retro = -v_horiz_vec / v_horiz_mag
+                steer_angle = float(np.arctan2(v_horiz_mag, max(v_descent, 1.0)))
+                steer_angle = min(steer_angle, np.radians(45.0))
+                desired_dir = (np.cos(steer_angle) * vertical
+                               + np.sin(steer_angle) * horiz_retro)
+                desired_dir /= max(np.linalg.norm(desired_dir), 1e-9)
+            elif v_horiz_mag > 1.0:
+                desired_dir = retrograde if v_rel_norm > 1.0 else vertical
+            else:
+                desired_dir = vertical
 
             thrust_on = True
             throttle = float(np.clip(burn_params['throttle'], 0.35, 1.0))
-            if v_horiz_mag > 250.0:
-                throttle = max(throttle, 0.75)
-            elif v_horiz_mag > 100.0:
-                throttle = max(throttle, 0.55)
+            if v_horiz_mag > 200.0:
+                throttle = max(throttle, 0.80)
+            elif v_horiz_mag > 80.0:
+                throttle = max(throttle, 0.60)
+
+            # Terminal guidance: when close to the surface, use a
+            # gravity-turn throttle profile that ensures v -> 0 as h -> 0.
+            # Required deceleration to stop in remaining altitude:
+            #   a_req = v^2 / (2*h) + g
+            if altitude < 1000.0 and v_descent > 0.0:
+                g_loc = C.MU_EARTH / (float(np.linalg.norm(r)) ** 2)
+                t_accel = float(C.THRUST_MAGNITUDE / max(m, 1.0))
+                v_total_landing = float(np.sqrt(v_descent ** 2 + v_horiz_mag ** 2))
+                a_req = v_total_landing ** 2 / (2.0 * max(altitude, 0.5)) + g_loc
+                throttle = float(np.clip(a_req / max(t_accel, 1e-6), 0.35, 1.0))
         else:
             desired_dir = retrograde
             thrust_on = False

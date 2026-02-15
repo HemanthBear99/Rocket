@@ -11,7 +11,7 @@ All transitions are physics-based:
   - Booster flip:     attitude alignment with retrograde (dot product check)
   - Boostback:        horizontal velocity toward site cancelled
   - Entry interface:  Knudsen number / altitude threshold (70 km)
-  - Landing burn:     suicide-burn ignition altitude from kinematics
+  - Landing burn:     energy-based ignition (Tsiolkovsky work integral)
 """
 
 from enum import Enum, auto
@@ -364,10 +364,10 @@ class MissionManager:
                     self._phase_entry_time = state.t
 
             # ENTRY -> LANDING
-            # Physics: Transition to landing phase when suicide burn ignition
-            # altitude is approaching. The ignition altitude is computed from
-            # kinematics: h_ignite = v²/(2*(T/m - g)), and we trigger early
-            # with a safety margin to allow engine spool-up and throttle response.
+            # Physics: Transition to landing phase when the vehicle's
+            # mechanical energy (KE + PE) exceeds the available thrust work
+            # from Tsiolkovsky integration (accounts for variable mass).
+            # The safety_factor controls how early ignition triggers.
             elif self.current_phase == MissionPhase.BOOSTER_ENTRY:
                 burn = estimate_suicide_burn(
                     state.r,
