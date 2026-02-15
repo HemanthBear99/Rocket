@@ -11,7 +11,7 @@ import os
 import sys
 
 from rlv_sim.main import run_simulation
-import generate_plots
+from scripts import plot_generator
 
 # Configure logging
 logging.basicConfig(
@@ -83,7 +83,7 @@ def main():
             logger.info(f"Generating plots in {plot_dir}")
             print(f">> Generating Plots in: {plot_dir}")
             
-            generate_plots.generate_all_plots(log, final_state, plot_dir)
+            plot_generator.generate_all_plots(log, final_state, plot_dir)
             
             print("\n" + "="*70)
             print("SUCCESS: Simulation and Plotting Complete.")
