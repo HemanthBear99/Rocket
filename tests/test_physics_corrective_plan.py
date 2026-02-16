@@ -40,7 +40,7 @@ def _orbital_elements(state):
 
 @lru_cache(maxsize=None)
 def _mission(dt: float):
-    return run_full_mission(dt=dt, max_time=1200.0, verbose=False)
+    return run_full_mission(dt=dt, verbose=False)
 
 
 def test_booster_mass_properties_do_not_alias_orbiter_model():

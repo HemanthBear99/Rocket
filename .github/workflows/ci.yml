@@ -74,13 +74,18 @@ jobs:
       - name: Regenerate plots
         run: |
           python -c "
-          from rlv_sim.main import run_simulation
-          from rlv_sim.plotting import generate_all_plots
-          print('Running simulation...')
-          state, log, reason = run_simulation(verbose=False)
-          print(f'Simulation complete: {reason}')
+          from rlv_sim.main import run_full_mission
+          from rlv_sim.plotting import generate_all_plots, generate_mission_segment_plots
+          print('Running full mission simulation...')
+          mission = run_full_mission(dt=0.05, verbose=False)
+          print(f'Ascent: {mission.ascent_reason}')
+          print(f'Orbiter: {mission.orbiter_reason}')
+          print(f'Booster: {mission.booster_reason}')
           print('Generating plots...')
-          files = generate_all_plots(log, 'plots')
+          files = generate_all_plots(mission.ascent_log, 'plots')
+          files.extend(generate_mission_segment_plots(
+              mission.ascent_log, mission.orbiter_log, mission.booster_log,
+              mission.separation_time, 'plots'))
           print(f'Generated {len(files)} plots')
           "
 

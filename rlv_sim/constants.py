@@ -48,11 +48,15 @@ PROPELLANT_MASS = STAGE1_PROPELLANT_MASS  # 390,000 kg (S1 only)
 INITIAL_MASS = STAGE1_WET_MASS + STAGE2_MASS  # 540,000 kg total
 
 # S1 Fuel Reserve for Booster Recovery (RTLS)
-# Budget: boostback ~1200 m/s + entry ~200 m/s + landing ~400 m/s = 1800 m/s total
-# Tsiolkovsky: m_fuel = m_dry*(exp(dv/(Isp*g0))-1) = 30000*(exp(1800/2766)-1) ~= 27,400 kg
-# Use 30,000 kg (~7.7% of S1 prop) for margin. Verified dV = 1917 m/s.
-STAGE1_LANDING_FUEL_RESERVE = 30000.0  # kg reserved for booster landing
-STAGE1_ASCENT_PROPELLANT = STAGE1_PROPELLANT_MASS - STAGE1_LANDING_FUEL_RESERVE  # 360,000 kg burned during ascent
+# Budget breakdown for aggressive gravity-turn MECO (~50° from vertical):
+#   boostback ~1100 m/s (reverse ~1500 m/s horizontal velocity)
+#   entry     ~350 m/s  (aerodynamic braking supplement)
+#   landing   ~800 m/s  (suicide burn from terminal velocity)
+# Total ~2250 m/s.  At Isp=282s from 75t -> 30t:
+#   dv_avail = 282*9.81*ln(75/30) = 2530 m/s — adequate with margin.
+# 45,000 kg = 11.5% of S1 prop — within Falcon 9 RTLS range (~10-15%).
+STAGE1_LANDING_FUEL_RESERVE = 45000.0  # kg reserved for booster landing
+STAGE1_ASCENT_PROPELLANT = STAGE1_PROPELLANT_MASS - STAGE1_LANDING_FUEL_RESERVE  # 345,000 kg burned during ascent
 
 # Mass flow rate: mdot = T / (Isp * g0)
 # Computed after propulsion parameters are defined
@@ -184,9 +188,10 @@ MIN_VELOCITY_FOR_TURN = 50.0  # m/s
 DT = 0.005
 
 # Maximum simulation time (s)
-# Must be long enough for: S1 ascent (~142s) + coast to apogee (~250s)
-# + S2 burn (~548s) = ~940s total.  Allow margin.
-MAX_TIME = 1200.0
+# Must be long enough for: S1 ascent (~132s) + S2 burn (~350s)
+# + coast to transfer apogee (~2500s) + circularisation (~50s)
+# = ~3032s.  Allow margin for longer coasts.
+MAX_TIME = 4000.0
 
 # Target MECO criteria (Phase I)
 TARGET_ALTITUDE = 110000.0  # m

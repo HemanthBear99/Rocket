@@ -3103,7 +3103,7 @@ def main() -> None:
     print("=" * 70)
 
     print("\nRunning full mission simulation (ascent + orbiter + booster)...")
-    mission = run_full_mission(dt=0.05, max_time=1200.0, verbose=True)
+    mission = run_full_mission(dt=0.05, verbose=True)
 
     print(f"\nAscent complete: {mission.ascent_reason}")
     print(f"Separation time: {mission.separation_time:.2f} s")

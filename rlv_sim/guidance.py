@@ -154,13 +154,17 @@ def gamma_profile_from_altitude(altitude: float) -> float:
     Uses a tanh-based shaping function to ensure C1 continuity (smooth derivatives)
     which helps the Attitude Control System track the command without saturating.
 
-    Gamma starts at 90 deg (Vertical) and smoothly decays to ~18 deg at MECO.
+    Gamma starts at 90 deg (Vertical) and smoothly decays toward the target
+    pitch angle at MECO.  The scale height controls how aggressively the
+    vehicle pitches over during the ascent.  A faster turn (lower scale)
+    produces a higher horizontal velocity at MECO, which is needed to reach
+    the typical 45-60 deg pitch-from-vertical at engine cutoff.
     """
     gamma_start = 90.0
-    gamma_final = 18.0
+    gamma_final = 10.0
 
-    turn_start_alt = 1000.0   # m
-    turn_scale = 45000.0
+    turn_start_alt = 500.0    # m — begin turn soon after clearing pad
+    turn_scale = 18000.0      # m — aggressive but not structural-limit-critical
 
     if altitude < turn_start_alt:
         return np.radians(gamma_start)
@@ -262,8 +266,13 @@ def compute_desired_thrust_direction(
     guidance_dir /= np.linalg.norm(guidance_dir)
 
     # 4. Mode Mixing: Blend from Guidance to Prograde based on ALTITUDE
-    mix_start_alt = 1000.0
-    mix_end_alt = 10000.0
+    #    Delay full prograde handover until well above Max-Q so the gamma
+    #    PID has authority to drive the pitch program through the critical
+    #    turn regime.  Below mix_start we use pure guidance; between start
+    #    and end a linear ramp blends to prograde; above end the vehicle
+    #    is velocity-locked (zero-lift gravity turn).
+    mix_start_alt = 2000.0
+    mix_end_alt = 40000.0
 
     if altitude < mix_start_alt:
         w_prograde = 0.0
@@ -396,7 +405,15 @@ def compute_orbit_insertion_guidance(
     """
     Guidance logic for S2 orbit insertion burn.
 
-    Steering law: flight-path-angle-tracking pitch program with altitude feedback.
+    Two-phase strategy targeting a circular orbit at ``TARGET_ORBIT_ALTITUDE``:
+
+    Phase 1 — **Apogee raise**:  Burn mostly prograde (with altitude-keeping
+    pitch-up near the floor) to raise apogee toward the target altitude.
+    Engine shuts off once apogee >= target.
+
+    Phase 2 — **Circularisation**:  Coast toward apogee, then re-ignite
+    prograde to circularise (eliminate residual radial velocity and close
+    any remaining velocity deficit at the target radius).
     """
     if gs is None:
         gs = _default_gs
@@ -406,8 +423,11 @@ def compute_orbit_insertion_guidance(
     r_mag = float(np.linalg.norm(r))
     vertical = compute_local_vertical(r)
 
-    v_circular = float(np.sqrt(C.MU_EARTH / r_mag))
-    v_deficit = v_circular - v_inertial
+    target_alt = C.TARGET_ORBIT_ALTITUDE          # 400 km
+    r_target = C.R_EARTH + target_alt
+    v_circ_target = float(np.sqrt(C.MU_EARTH / r_target))
+    v_circ_here = float(np.sqrt(C.MU_EARTH / r_mag))
+    v_deficit_here = v_circ_here - v_inertial
 
     v_radial = float(np.dot(v, vertical))
     v_horiz_vec = v - v_radial * vertical
@@ -419,7 +439,7 @@ def compute_orbit_insertion_guidance(
         _, east, _ = compute_local_frame(r)
         horiz_hat = east
 
-    # Initialize OI state on first call
+    # ── Initialise OI state on first call ────────────────────────────
     if gs.oi_start_time is None:
         gs.oi_start_time = t
         if gs.last_ascent_direction is not None:
@@ -434,35 +454,89 @@ def compute_orbit_insertion_guidance(
     else:
         prograde = vertical
 
-    v_progress = float(np.clip(v_horiz / v_circular, 0.0, 1.0))
-    gamma_current = float(np.degrees(np.arctan2(v_radial, max(v_horiz, 1.0))))
+    # ── Orbital element helpers ──────────────────────────────────────
+    spec_energy = 0.5 * v_inertial**2 - C.MU_EARTH / r_mag
+    if abs(spec_energy) > 1.0:
+        a_sma = -C.MU_EARTH / (2.0 * spec_energy)
+    else:
+        a_sma = r_mag
+    h_vec = np.cross(r, v)
+    h_mag = float(np.linalg.norm(h_vec))
+    if a_sma > 0 and C.MU_EARTH * a_sma > 0:
+        ecc = float(np.sqrt(max(0.0, 1.0 - h_mag**2 / (C.MU_EARTH * a_sma))))
+    else:
+        ecc = 1.0
+    apogee_alt = a_sma * (1.0 + ecc) - C.R_EARTH if a_sma > 0 else altitude
+    perigee_alt = a_sma * (1.0 - ecc) - C.R_EARTH if a_sma > 0 else altitude
 
-    pitch_target_above_horiz = 6.0 * (1.0 - v_progress) ** 0.5
+    s2_prop_remaining = m - C.STAGE2_DRY_MASS
 
-    pitch_correction_deg = 0.0
-    if v_radial < 0.0:
-        pitch_correction_deg += min(15.0, -v_radial * 0.15)
+    # ── Decide phase: raising apogee vs circularising ────────────────
+    # Apogee raise complete once apogee is at or above target (with margin)
+    apogee_reached_target = apogee_alt >= target_alt - 5000.0
+    # Near apogee: radial velocity nearly zero and altitude near target.
+    # Use tight v_radial threshold so we don't ignite too early (which
+    # would overshoot apogee by adding prograde velocity while still climbing).
+    near_apogee = abs(v_radial) < 15.0 and altitude > target_alt * 0.90
 
-    min_safe_alt = 80000.0
-    if altitude < min_safe_alt + 20000.0:
-        alt_margin = (altitude - min_safe_alt) / 20000.0
-        alt_margin = float(np.clip(alt_margin, 0.0, 1.0))
-        pitch_correction_deg += 20.0 * (1.0 - alt_margin)
+    # Circularisation: apogee at target and we are near apogee
+    circularising = apogee_reached_target and near_apogee
 
-    if v_deficit < 4000.0 and v_radial > 10.0:
-        flatten_factor = float(np.clip(1.0 - v_deficit / 4000.0, 0.0, 1.0))
-        pitch_down_deg = flatten_factor * min(20.0, v_radial * 0.05)
-        pitch_target_above_horiz -= pitch_down_deg
+    # ── Pitch program ────────────────────────────────────────────────
+    if circularising:
+        # Phase 2: Circularise at target altitude — burn prograde to
+        # close the velocity deficit.
+        v_deficit_target = v_circ_target - v_inertial
+        pitch_target_deg = 0.0   # pure prograde (horizontal)
+        # Small pitch correction to damp any residual radial velocity
+        if abs(v_radial) > 2.0:
+            pitch_target_deg -= float(np.clip(v_radial * 0.3, -8.0, 8.0))
+        thrust_on = s2_prop_remaining > 0.0 and v_deficit_target > 3.0
+        if v_deficit_target < 100.0 and v_deficit_target > 3.0:
+            throttle = float(np.clip(v_deficit_target / 100.0, 0.05, 1.0))
+        elif v_deficit_target <= 3.0:
+            throttle = 0.0
+            thrust_on = False
+        else:
+            throttle = 1.0
+    elif apogee_reached_target:
+        # Coasting to apogee — no thrust, hold prograde attitude
+        pitch_target_deg = 0.0
+        thrust_on = False
+        throttle = 0.0
+    else:
+        # Phase 1: Raise apogee — burn mostly prograde with altitude floor
+        # Baseline: small positive pitch to gain altitude while accelerating
+        alt_deficit = target_alt - apogee_alt
+        alt_frac = float(np.clip(alt_deficit / target_alt, 0.0, 1.0))
+        pitch_target_deg = 4.0 * alt_frac ** 0.3
 
-    pitch_target_above_horiz += pitch_correction_deg
-    pitch_target_above_horiz = float(np.clip(pitch_target_above_horiz, -10.0, 75.0))
+        # Altitude floor protection: if below 80 km, pitch up harder
+        min_safe_alt = 80000.0
+        if altitude < min_safe_alt + 20000.0:
+            alt_margin = float(np.clip(
+                (altitude - min_safe_alt) / 20000.0, 0.0, 1.0))
+            pitch_target_deg += 20.0 * (1.0 - alt_margin)
 
-    pitch_target_deg = float(np.clip(pitch_target_above_horiz, -10.0, 75.0))
+        # If descending, pitch up to arrest descent
+        if v_radial < 0.0:
+            pitch_target_deg += float(np.clip(-v_radial * 0.15, 0.0, 15.0))
+
+        # If climbing fast and apogee is already near target, flatten out
+        if alt_deficit < 50000.0 and v_radial > 10.0:
+            flatten = float(np.clip(1.0 - alt_deficit / 50000.0, 0.0, 1.0))
+            pitch_target_deg -= flatten * min(15.0, v_radial * 0.04)
+
+        pitch_target_deg = float(np.clip(pitch_target_deg, -5.0, 75.0))
+        thrust_on = s2_prop_remaining > 0.0
+        throttle = 1.0
+
     pitch_target_rad = np.radians(pitch_target_deg)
-
-    target_dir = np.cos(pitch_target_rad) * horiz_hat + np.sin(pitch_target_rad) * vertical
+    target_dir = (np.cos(pitch_target_rad) * horiz_hat
+                  + np.sin(pitch_target_rad) * vertical)
     target_dir = target_dir / np.linalg.norm(target_dir)
 
+    # ── Smooth ramp from ascent attitude ─────────────────────────────
     dt_since_start = t - gs.oi_start_time
     ramp_duration = 20.0
 
@@ -481,17 +555,6 @@ def compute_orbit_insertion_guidance(
 
     max_aoa = np.radians(15.0)
     desired_dir = _limit_aoa(desired_dir, v, max_aoa)
-
-    s2_prop_remaining = m - C.STAGE2_DRY_MASS
-    thrust_on = s2_prop_remaining > 0.0 and v_deficit > 10.0
-
-    if v_deficit < 100.0 and v_deficit > 10.0:
-        throttle = float(np.clip(v_deficit / 100.0, 0.1, 1.0))
-    elif v_deficit <= 10.0:
-        throttle = 0.0
-        thrust_on = False
-    else:
-        throttle = 1.0
 
     cos_pitch = np.clip(np.dot(vertical, desired_dir), -1.0, 1.0)
     pitch_angle = float(np.arccos(cos_pitch))
@@ -598,36 +661,45 @@ def _compute_boostback_direction(
     apogee_target_m: float = 160000.0,
 ) -> np.ndarray:
     """
-    Compute optimal boostback thrust direction to return to launch site.
+    Compute boostback thrust direction to return to launch site.
 
-    Uses the velocity-to-be-gained (VTG) method.
+    Primary objective: reverse the horizontal velocity so the booster
+    follows a ballistic arc back toward the landing pad.  The thrust
+    direction is the *anti-horizontal-velocity* vector — i.e. directly
+    opposing the component of velocity that carries the booster away
+    from the pad.
+
+    A secondary downward bias is blended in only when the predicted
+    ballistic apogee exceeds the cap, preventing the booster from
+    climbing excessively.
     """
     vertical = compute_local_vertical(r)
     v_norm = float(np.linalg.norm(v))
     if v_norm < 1.0:
         return -vertical
 
-    # Base command: retrograde to reduce total kinetic energy.
-    thrust_dir = -v / v_norm
+    # Decompose velocity into vertical and horizontal components
+    v_radial = float(np.dot(v, vertical))
+    v_horiz_vec = v - v_radial * vertical
+    v_horiz_mag = float(np.linalg.norm(v_horiz_vec))
 
-    # Add horizontal bias toward launch site for RTLS shaping.
-    r_to_site = launch_site - r
-    r_horiz = r_to_site - np.dot(r_to_site, vertical) * vertical
-    r_horiz_norm = float(np.linalg.norm(r_horiz))
-    if r_horiz_norm > 1e3:
-        toward_site = r_horiz / r_horiz_norm
-        site_weight = float(np.clip(r_horiz_norm / 800000.0, 0.08, 0.30))
-        thrust_dir = (1.0 - site_weight) * thrust_dir + site_weight * toward_site
-        thrust_dir /= max(np.linalg.norm(thrust_dir), 1e-6)
+    # Primary: oppose horizontal velocity (the main RTLS requirement)
+    if v_horiz_mag > 5.0:
+        thrust_dir = -v_horiz_vec / v_horiz_mag
+    else:
+        # Horizontal velocity already near zero — point retrograde
+        thrust_dir = -v / max(v_norm, 1.0)
 
-    # Enforce apogee cap by biasing thrust inward while ascending.
+    # Secondary: apogee cap — blend downward only when predicted apogee
+    # significantly exceeds the target.  This prevents wasting most of
+    # the burn on vertical deceleration.
     altitude = float(np.linalg.norm(r) - C.R_EARTH)
     g_local = C.MU_EARTH / max(np.linalg.norm(r) ** 2, 1.0)
-    v_radial = float(np.dot(v, vertical))
     h_apogee_pred = estimate_ballistic_apogee(altitude, v_radial, g_local)
     apogee_excess = max(0.0, h_apogee_pred - apogee_target_m)
-    if v_radial > 0.0:
-        down_weight = float(np.clip(v_radial / 900.0 + apogee_excess / 120000.0, 0.25, 0.90))
+    if v_radial > 0.0 and apogee_excess > 20000.0:
+        # Proportional downward bias — small unless apogee is way too high
+        down_weight = float(np.clip(apogee_excess / 200000.0, 0.0, 0.35))
         thrust_dir = (1.0 - down_weight) * thrust_dir + down_weight * (-vertical)
         thrust_dir /= max(np.linalg.norm(thrust_dir), 1e-6)
 
@@ -681,14 +753,27 @@ def compute_booster_guidance(
     elif phase == "BOOSTER_BOOSTBACK":
         desired_dir = _compute_boostback_direction(r, v, launch_site, apogee_target_m=apogee_target_m)
         thrust_on = True
-        throttle = 0.55
+        throttle = 0.85
 
     elif phase == "BOOSTER_COAST":
         desired_dir = retrograde
         thrust_on = False
 
     elif phase == "BOOSTER_ENTRY":
-        desired_dir = retrograde
+        # Entry burn: primarily retrograde to slow down, with a horizontal
+        # bias toward the landing site to reduce site error accumulated
+        # from imperfect boostback.
+        r_to_site = launch_site - r
+        r_to_site_horiz = r_to_site - np.dot(r_to_site, vertical) * vertical
+        site_dist = float(np.linalg.norm(r_to_site_horiz))
+        if site_dist > 1000.0:
+            toward_site = r_to_site_horiz / site_dist
+            # Blend toward site proportional to how far off we are
+            site_bias = float(np.clip(site_dist / 200000.0, 0.0, 0.25))
+            desired_dir = (1.0 - site_bias) * retrograde + site_bias * toward_site
+            desired_dir /= max(np.linalg.norm(desired_dir), 1e-9)
+        else:
+            desired_dir = retrograde
 
         entry_burn_on = (
             altitude > entry_min_alt and

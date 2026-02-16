@@ -2,7 +2,7 @@
 from rlv_sim.main import run_full_mission
 import numpy as np
 
-result = run_full_mission(dt=0.05, max_time=1200.0, verbose=True)
+result = run_full_mission(dt=0.05, verbose=True)
 
 print("\n\n===== BOOSTER TRACKING DETAILS =====")
 blog = result.booster_log
