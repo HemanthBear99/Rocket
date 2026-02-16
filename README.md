@@ -563,13 +563,6 @@ The CI pipeline runs on every push and pull request:
 2. **262 Tests:** Unit tests, integration tests, physics validation, regression checks
 3. **Auto-Plot Regeneration:** On push to `main`, the full mission simulation runs and commits updated plots automatically
 
----
-
-## License
-
-MIT
-
----
 
 <p align="center">
   <i>Built from first principles. Every force computed. Every trajectory earned.</i>
