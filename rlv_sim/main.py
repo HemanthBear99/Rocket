@@ -1064,7 +1064,8 @@ def run_full_mission(dt: float = None, max_time: float = None,
         print(f"Orbiter:       {orbiter_reason}")
         print(f"  Final Alt:   {orbiter_state.altitude/1000:.1f} km | V={orbiter_state.speed:.0f} m/s")
         print(f"Booster:       {booster_reason}")
-        print(f"  Final Alt:   {booster_state.altitude/1000:.1f} km | V={booster_state.speed:.0f} m/s")
+        booster_v_display = float(np.linalg.norm(compute_relative_velocity(booster_state.r, booster_state.v)))
+        print(f"  Final Alt:   {booster_state.altitude/1000:.1f} km | V={booster_v_display:.0f} m/s (surface-relative)")
         print(f"Total Steps:   {step_count:,} | Wall Time: {elapsed:.2f}s")
         print("=" * 90)
 

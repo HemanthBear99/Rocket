@@ -2657,7 +2657,12 @@ def plot_ground_track(data: TrajectoryData, output_dir: str) -> str:
     ax.set_ylabel('North (km)')
     ax.set_title('Ground Track Projection', fontweight='bold')
     ax.legend(loc='upper left', framealpha=0.95)
-    ax.set_aspect('equal')
+
+    # Ensure North axis has a minimum ±5 km range so the plot isn't a flat line
+    # on near-equatorial/due-east launches where North ≈ 0 throughout.
+    north_center = (north.max() + north.min()) / 2.0
+    north_half = max((north.max() - north.min()) / 2.0, 5.0)
+    ax.set_ylim(north_center - north_half, north_center + north_half)
 
     plt.tight_layout()
     path = os.path.join(output_dir, '58_ground_track.png')
@@ -2748,7 +2753,7 @@ def plot_booster_altitude_profile(booster_log, separation_time: float, output_di
 
     t_b = _extract_series(booster_log, "time")
     h_b = _extract_series(booster_log, "altitude")
-    v_b = _extract_series(booster_log, "velocity")
+    v_b_rel = _extract_series(booster_log, "velocity_rel")  # surface-relative speed
 
     if len(t_b) == 0:
         ax.text(0.5, 0.5, 'No booster telemetry available', transform=ax.transAxes,
@@ -2760,9 +2765,9 @@ def plot_booster_altitude_profile(booster_log, separation_time: float, output_di
                    label=f'Apogee: {h_b[peak_idx]:.1f} km')
         ax.scatter([t_b[-1]], [h_b[-1]], color='black', s=45,
                    label=f'Final: {h_b[-1]:.1f} km')
-        if len(v_b) > 0 and h_b[-1] <= 0.1:
-            ax.annotate(f'Impact speed: {v_b[-1]:.0f} m/s',
-                        xy=(t_b[-1], h_b[-1]), xytext=(-140, 25),
+        if len(v_b_rel) > 0 and h_b[-1] <= 0.1:
+            ax.annotate(f'Touchdown speed: {v_b_rel[-1]:.1f} m/s',
+                        xy=(t_b[-1], h_b[-1]), xytext=(-160, 25),
                         textcoords='offset points',
                         arrowprops=dict(arrowstyle='->', alpha=0.7))
 
@@ -3111,8 +3116,11 @@ def main() -> None:
     print(f"Booster result:  {mission.booster_reason}")
     print(f"Orbiter final:   {mission.orbiter_final_state.altitude/1000:.1f} km | "
           f"{mission.orbiter_final_state.speed:.1f} m/s")
-    print(f"Booster final:   {mission.booster_final_state.altitude/1000:.1f} km | "
-          f"{mission.booster_final_state.speed:.1f} m/s")
+    from .utils import compute_relative_velocity as _crv
+    _bst = mission.booster_final_state
+    _bst_v_rel = float(np.linalg.norm(_crv(_bst.r, _bst.v)))
+    print(f"Booster final:   {_bst.altitude/1000:.1f} km | "
+          f"{_bst_v_rel:.1f} m/s (surface-relative)")
 
     print("\nGenerating publication-quality plots...")
     output_dir = "plots"

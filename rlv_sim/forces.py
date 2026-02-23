@@ -238,6 +238,12 @@ def compute_lift_force(r: np.ndarray, v: np.ndarray, q: np.ndarray) -> np.ndarra
     if rho < C.DENSITY_FLOOR:
         return np.zeros(3)
 
+    # Mirror the same guard used in compute_drag_force: if the vehicle is
+    # inertially stationary, Earth rotation creates a spurious v_rel that
+    # would produce lift on a non-moving vehicle.  Skip it.
+    if np.linalg.norm(v) < C.SMALL_VELOCITY_TOL:
+        return np.zeros(3)
+
     v_rel = compute_relative_velocity(r, v)
     v_rel_norm = np.linalg.norm(v_rel)
     if v_rel_norm < C.SMALL_VELOCITY_TOL:
@@ -257,11 +263,25 @@ def compute_lift_force(r: np.ndarray, v: np.ndarray, q: np.ndarray) -> np.ndarra
     q_dyn = 0.5 * rho * v_rel_norm**2
     lift_mag = q_dyn * cl_alpha * alpha * C.REFERENCE_AREA
 
-    # Lift direction: perpendicular to v_rel and body-Y axis (assume symmetric rocket)
-    # Compute unit normal in inertial frame: u_lift ~ (v_rel × (body_y_inertial)) × v_rel
-    body_y_inertial = R[:, 1]
-    lift_dir = np.cross(np.cross(v_rel, body_y_inertial), v_rel)
-    norm = np.linalg.norm(lift_dir)
+    # Lift direction: component of body longitudinal axis perpendicular to v_rel.
+    # For a symmetric rocket the AoA plane is defined by v_rel and the body Z-axis
+    # (thrust direction), so we project body_z onto the plane normal to v_rel:
+    #
+    #   lift_dir = (v_rel × body_z) × v_rel   [BAC-CAB: = body_z|v|² - v(v·body_z)]
+    #
+    # Near-parallel guard: when body_z ≈ v_rel (alpha → 0) the first cross product
+    # vanishes and lift is correctly near-zero.  We check with a *relative* threshold
+    # (sin α < 1e-4 rad) to stay numerically stable at all velocity magnitudes.
+    body_z_inertial = R[:, 2]  # Body longitudinal axis (thrust direction)
+    cross_intermediate = np.cross(v_rel, body_z_inertial)
+    cross_norm = float(np.linalg.norm(cross_intermediate))
+    v_rel_mag = float(np.linalg.norm(v_rel))
+    # sin(alpha) = |v_rel × body_z| / (|v_rel| * |body_z|).  |body_z| = 1.
+    if cross_norm < 1e-4 * v_rel_mag:
+        # Near-zero AoA — lift is negligible; avoid division by tiny number
+        return np.zeros(3)
+    lift_dir = np.cross(cross_intermediate, v_rel)
+    norm = float(np.linalg.norm(lift_dir))
     if norm < 1e-9:
         return np.zeros(3)
     lift_dir /= norm
@@ -432,9 +452,13 @@ def compute_total_force(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     F_grav = compute_gravity_force(r, m)
     F_thrust = compute_thrust_force(q, r, thrust_on, stage=stage)
 
-    if stage == 2:
-        # Doc §D.7: "Aerodynamic drag is neglected due to near-vacuum conditions"
-        # S2 operates above ~110 km where atmosphere is negligible
+    # Disable aerodynamics above 120 km (near-vacuum: density << 1e-12 kg/m³).
+    # Using altitude rather than stage number keeps the physics correct for any
+    # vehicle that passes through this region (ascending S1, S2 orbit insertion,
+    # booster re-entry approach).  Below 120 km the atmosphere model returns the
+    # correct density and drag/lift are computed normally.
+    altitude_m = float(np.linalg.norm(r) - C.R_EARTH)
+    if altitude_m > C.AERO_DISABLE_ALTITUDE:
         F_drag = np.zeros(3)
         F_lift = np.zeros(3)
     else:
@@ -479,8 +503,9 @@ def compute_specific_forces(r: np.ndarray, v: np.ndarray, q: np.ndarray,
     F_grav = compute_gravity_force(r, m)
     F_thrust = compute_thrust_force(q, r, thrust_on, stage=stage)
 
-    if stage == 2:
-        # Doc §D.7: drag neglected in near-vacuum (consistent with compute_total_force)
+    # Altitude-based aero disable — consistent with compute_total_force
+    altitude_m = float(np.linalg.norm(r) - C.R_EARTH)
+    if altitude_m > C.AERO_DISABLE_ALTITUDE:
         F_drag = np.zeros(3)
         F_lift = np.zeros(3)
     else:
