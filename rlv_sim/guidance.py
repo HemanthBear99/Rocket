@@ -794,7 +794,15 @@ def compute_booster_guidance(
         v_horiz_vec = v_rel - np.dot(v_rel, vertical) * vertical
         v_horiz_mag = float(np.linalg.norm(v_horiz_vec))
 
-        if burn_params['ignite']:
+        # --- Landing burn persistence ---
+        # Once ignited, keep the burn on until touchdown or propellant exhaustion.
+        # The energy-based ignite flag can momentarily flip False once the vehicle
+        # decelerates fast enough that the kinematics estimate h_ignite * SF drops
+        # below current altitude (variable-mass effect: T/m rises as fuel burns,
+        # so actual mean deceleration exceeds the constant-a estimate used by
+        # estimate_suicide_burn). Without this latch the burn oscillates every
+        # timestep and the vehicle impacts at near-ballistic speed.
+        if burn_params['ignite'] or gs.booster_landing_burn_started:
             gs.booster_landing_burn_started = True
 
             # --- Lateral velocity zeroing ---
@@ -819,22 +827,43 @@ def compute_booster_guidance(
                 desired_dir = vertical
 
             thrust_on = True
-            throttle = float(np.clip(burn_params['throttle'], 0.35, 1.0))
+
+            # Throttle — variable-mass continuous control law:
+            #
+            #   T_req(t) = m(t) * [v_eff²/(2h) + g_local]
+            #   θ(t)     = T_req(t) / T_max
+            #
+            # Physical meaning: at each instant, command the thrust that would
+            # produce exactly the net deceleration needed to stop in the
+            # remaining altitude (kinematic estimate), plus gravity compensation.
+            # Using current m(t) makes this fully mass-aware — as propellant
+            # burns, m decreases, T/m increases, and θ decreases naturally
+            # without needing an external correction.
+            #
+            # Note: we compute this directly from state rather than reading
+            # burn_params['throttle'], because burn_params['throttle'] is set to
+            # 0.0 when burn_params['ignite'] = False (i.e., when the persistence
+            # latch is holding the burn on).  Computing directly ensures the
+            # correct throttle in both the ignite=True and latch-only cases.
+            g_loc = float(C.MU_EARTH / (float(np.linalg.norm(r)) ** 2))
+            t_accel = float(C.THRUST_MAGNITUDE / max(m, 1.0))
+            v_eff = float(np.sqrt(max(v_descent, 0.0) ** 2 + v_horiz_mag ** 2))
+            if v_eff < 1.0:
+                throttle = 0.0  # Effectively at rest — kill thrust
+            else:
+                # No lower clip: the formula can smoothly approach 0 as
+                # v and h simultaneously → 0 (classical suicide-burn curve).
+                # Clamping to a positive minimum would over-brake at low
+                # altitude, stopping the vehicle above h=0 and causing a
+                # free-fall impact.  Allowing throttle → 0 lets the engine
+                # follow the exact variable-mass touchdown trajectory.
+                a_req = v_eff ** 2 / (2.0 * max(altitude, 0.5)) + g_loc
+                throttle = float(np.clip(a_req / max(t_accel, 1e-6), 0.0, 1.0))
+            # Floor throttle when high lateral speed demands more braking
             if v_horiz_mag > 200.0:
                 throttle = max(throttle, 0.80)
             elif v_horiz_mag > 80.0:
                 throttle = max(throttle, 0.60)
-
-            # Terminal guidance: when close to the surface, use a
-            # gravity-turn throttle profile that ensures v -> 0 as h -> 0.
-            # Required deceleration to stop in remaining altitude:
-            #   a_req = v^2 / (2*h) + g
-            if altitude < 1000.0 and v_descent > 0.0:
-                g_loc = C.MU_EARTH / (float(np.linalg.norm(r)) ** 2)
-                t_accel = float(C.THRUST_MAGNITUDE / max(m, 1.0))
-                v_total_landing = float(np.sqrt(v_descent ** 2 + v_horiz_mag ** 2))
-                a_req = v_total_landing ** 2 / (2.0 * max(altitude, 0.5)) + g_loc
-                throttle = float(np.clip(a_req / max(t_accel, 1e-6), 0.35, 1.0))
         else:
             desired_dir = retrograde
             thrust_on = False

@@ -301,6 +301,10 @@ ZERO_TOLERANCE = 1e-10      # Near-zero check for divisions/normalizations
 SMALL_VELOCITY_TOL = 1e-5   # Small velocity threshold (m/s)
 DENSITY_FLOOR = 1e-12       # Minimum density before treating as vacuum (kg/m³)
 CRASH_ALTITUDE_TOLERANCE = -1000.0  # Altitude below which we consider it a crash (m)
+# Above this altitude the atmosphere is effectively vacuum (rho << DENSITY_FLOOR).
+# Aerodynamic forces are zeroed here to avoid spurious near-zero drag/lift
+# computations and for clarity — matches the top of the US76 + extension model.
+AERO_DISABLE_ALTITUDE = 120000.0    # m (120 km)
 
 # Winds (simplified log/power profile)
 WIND_REF_ALT = 10000.0   # m
