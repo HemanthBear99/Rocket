@@ -364,10 +364,17 @@ class MissionManager:
                     self._phase_entry_time = state.t
 
             # ENTRY -> LANDING
-            # Physics: Transition to landing phase when the vehicle's
-            # mechanical energy (KE + PE) exceeds the available thrust work
-            # from Tsiolkovsky integration (accounts for variable mass).
-            # The safety_factor controls how early ignition triggers.
+            # Physics: Transition to landing phase when EITHER:
+            #   (a) The energy-based ignition estimate triggers (Tsiolkovsky
+            #       integration accounting for variable mass), OR
+            #   (b) Altitude drops below the minimum landing burn altitude.
+            #
+            # The minimum altitude floor (b) is critical for ZEM/ZEV divert
+            # guidance.  Without it the energy estimator may not trigger until
+            # < 100 m (after a slow entry burn), leaving only ~1 s to close a
+            # 10+ km position error to the pad.  Starting at 2000 m gives the
+            # ZEM/ZEV law ~25 s to both decelerate and translate to the pad
+            # while keeping propellant consumption within the landing reserve.
             elif self.current_phase == MissionPhase.BOOSTER_ENTRY:
                 burn = estimate_suicide_burn(
                     state.r,
@@ -378,15 +385,28 @@ class MissionManager:
                 )
                 h_ignite = float(burn['burn_altitude'])
 
-                landing_trigger = (
-                    burn['ignite'] and
+                # (a) Energy-based ignition
+                energy_trigger = burn['ignite'] and radial_velocity < 0.0
+
+                # (b) Minimum altitude floor — ensure ZEM/ZEV has enough time
+                min_land_alt = self.config.booster_landing_min_altitude_m
+                altitude_trigger = (
+                    state.altitude < min_land_alt and
                     radial_velocity < 0.0  # Must be descending
                 )
 
+                landing_trigger = energy_trigger or altitude_trigger
+                trigger_reason = (
+                    "energy_ignition" if energy_trigger else "min_altitude_floor"
+                )
+
                 if landing_trigger:
-                    logger.info(f"Booster Landing Phase at t={state.t:.2f}s, "
-                               f"Alt={state.altitude/1000:.1f}km, "
-                               f"h_ignite={h_ignite:.0f}m")
+                    logger.info(
+                        f"Booster Landing Phase at t={state.t:.2f}s, "
+                        f"Alt={state.altitude/1000:.1f}km, "
+                        f"h_ignite={h_ignite:.0f}m, "
+                        f"trigger={trigger_reason}"
+                    )
                     self.current_phase = MissionPhase.BOOSTER_LANDING
                     self._phase_entry_time = state.t
         self._last_radial_velocity = radial_velocity

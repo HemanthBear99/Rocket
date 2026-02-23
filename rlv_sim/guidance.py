@@ -805,7 +805,16 @@ def compute_booster_guidance(
         # so actual mean deceleration exceeds the constant-a estimate used by
         # estimate_suicide_burn). Without this latch the burn oscillates every
         # timestep and the vehicle impacts at near-ballistic speed.
-        if burn_params['ignite'] or gs.booster_landing_burn_started:
+        #
+        # Also start the burn immediately when altitude drops below the configured
+        # minimum, regardless of the energy estimate.  The mission manager may
+        # enter BOOSTER_LANDING via an altitude-floor trigger (not energy-based),
+        # in which case burn_params['ignite'] will still be False even though we
+        # are in the landing phase and need thrust for ZEM/ZEV divert.
+        min_land_alt = cfg.booster_landing_min_altitude_m if cfg is not None else 2000.0
+        altitude_start = altitude < min_land_alt
+
+        if burn_params['ignite'] or gs.booster_landing_burn_started or altitude_start:
             gs.booster_landing_burn_started = True
             thrust_on = True
 
@@ -860,32 +869,42 @@ def compute_booster_guidance(
             r_to_pad = launch_site - r
             r_err_horiz = r_to_pad - float(np.dot(r_to_pad, vertical)) * vertical
 
-            # ZEM and divert command
-            zem = r_err_horiz - v_horiz_vec * t_go
-            a_divert = (6.0 / (t_go ** 2)) * zem - (2.0 / t_go) * v_horiz_vec
-
-            # Thrust budget constraint (hard):
-            #   Vertical authority takes priority.  After allocating thrust
-            #   for a_vert_needed, whatever remains can be used for divert.
-            #
-            #   a_avail_horiz = sqrt( t_accel² − min(a_vert, t_accel)² )
-            #
-            # This guarantees throttle ≤ 1.0 and that the vertical
-            # deceleration requirement is always fully met.
-            #
-            # Tilt constraint (soft, secondary):
-            #   Never tilt more than 45° from vertical for structural safety
-            #   and to preserve attitude control authority.
-            #
-            #   a_horiz_tilt_limit = a_vert_needed × tan(45°) = a_vert_needed
-            #
-            # The effective horizontal budget is the minimum of both.
+            # Thrust budget constraint:
+            #   Vertical authority takes priority.  After meeting a_vert_needed,
+            #   whatever remains can be used for horizontal divert.
+            #   Tilt capped at 45° from vertical for structural/control safety.
             a_vert_for_budget = min(a_vert_needed, t_accel)
             a_avail_horiz = float(np.sqrt(
                 max(t_accel ** 2 - a_vert_for_budget ** 2, 0.0)
             ))
             _tan45 = 1.0  # tan(45°)
             a_horiz_budget = min(a_avail_horiz, a_vert_for_budget * _tan45)
+
+            # Reachability check:
+            #   ZEM/ZEV is only valid when the position error can actually be
+            #   closed in t_go with the available horizontal acceleration.
+            #   Maximum reachable distance: d = 0.5 * a_budget * t_go²
+            #
+            #   If r_err > d_reachable: the pad is too far away to reach in
+            #   the remaining time, so use ZEV-only guidance (kill lateral
+            #   velocity to land softly) rather than chasing an unreachable
+            #   target that would pile on horizontal velocity at touchdown.
+            r_err_mag = float(np.linalg.norm(r_err_horiz))
+            d_reachable = 0.5 * a_horiz_budget * t_go ** 2
+
+            if r_err_mag <= d_reachable and r_err_mag > 1.0:
+                # Pad reachable — full ZEM/ZEV: drive position and velocity
+                # error to zero simultaneously at t_go.
+                zem = r_err_horiz - v_horiz_vec * t_go
+                a_divert = (6.0 / (t_go ** 2)) * zem - (2.0 / t_go) * v_horiz_vec
+            else:
+                # Pad unreachable this burn — fall back to ZEV-only: kill
+                # lateral velocity with a smooth proportional command.
+                # Use t_go floored so accel never exceeds horizontal budget.
+                t_go_zev = max(t_go, v_horiz_mag / max(a_horiz_budget, 1e-6))
+                a_divert = -(2.0 / t_go_zev) * v_horiz_vec
+
+            # Apply budget clamp
             a_divert_mag = float(np.linalg.norm(a_divert))
             if a_divert_mag > a_horiz_budget and a_divert_mag > 1e-6:
                 a_divert = a_divert * (a_horiz_budget / a_divert_mag)

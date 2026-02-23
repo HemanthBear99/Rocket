@@ -82,7 +82,19 @@ def test_ignition_model_is_consistent_between_manager_and_guidance_path():
     mgr.update(state, dt=0.1)
 
     transitioned = mgr.get_phase() == MissionPhase.BOOSTER_LANDING
-    assert transitioned == bool(burn["ignite"])
+
+    # The manager now has two triggers:
+    #   (a) energy-based ignition estimate (original behaviour)
+    #   (b) altitude-floor override so ZEM/ZEV has enough time to divert to pad
+    # Both should cause a transition; neither alone is sufficient to *prevent* one.
+    r_norm = float(np.linalg.norm(state.r))
+    radial_vel = float(np.dot(state.r, state.v) / r_norm)
+    altitude = r_norm - C.R_EARTH
+    altitude_floor_trigger = (
+        altitude < cfg.booster_landing_min_altitude_m and radial_vel < 0.0
+    )
+    expected = bool(burn["ignite"]) or altitude_floor_trigger
+    assert transitioned == expected
 
 
 def test_boostback_reserve_guard_protects_entry_and_landing_budget():

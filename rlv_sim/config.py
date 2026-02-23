@@ -61,6 +61,15 @@ class SimulationConfig:
     booster_entry_burn_min_altitude_m: float = 35000.0
     booster_entry_burn_min_speed_mps: float = 800.0
     booster_landing_ignition_safety_factor: float = 1.5
+    # Minimum altitude at which landing burn must start regardless of the
+    # energy-based ignition estimate.  Without this floor the energy estimator
+    # may not trigger until < 100 m (after a slow entry burn), leaving the
+    # ZEM/ZEV divert guidance only ~1 s to close a 10+ km position error.
+    # Propellant budget:  at 2000 m the vertical-only landing burn requires
+    # ~4867 kg; with 45° ZEM/ZEV tilt overhead ~6883 kg < 8912 kg available.
+    # At 3000 m with 45° tilt the requirement rises to ~9861 kg (exceeds budget).
+    # 2000 m gives ~25 s of burn time while keeping propellant within margin.
+    booster_landing_min_altitude_m: float = 2000.0
     # RTLS target site measured from launch site along local-east surface arc.
     # Cape Canaveral references:
     #   SLC-40 -> LZ-1/2 ~= 9.65 km
