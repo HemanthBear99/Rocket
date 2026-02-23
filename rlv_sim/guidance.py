@@ -768,8 +768,11 @@ def compute_booster_guidance(
         site_dist = float(np.linalg.norm(r_to_site_horiz))
         if site_dist > 1000.0:
             toward_site = r_to_site_horiz / site_dist
-            # Blend toward site proportional to how far off we are
-            site_bias = float(np.clip(site_dist / 200000.0, 0.0, 0.25))
+            # Blend toward site proportional to how far off we are.
+            # Max bias raised from 0.25 → 0.30 to moderately reduce position
+            # error entering the landing burn without significantly reducing
+            # retrograde deceleration authority during entry.
+            site_bias = float(np.clip(site_dist / 100000.0, 0.0, 0.30))
             desired_dir = (1.0 - site_bias) * retrograde + site_bias * toward_site
             desired_dir /= max(np.linalg.norm(desired_dir), 1e-9)
         else:
@@ -790,11 +793,11 @@ def compute_booster_guidance(
     elif phase == "BOOSTER_LANDING":
         burn_params = burn_prediction
 
-        v_descent = -float(np.dot(v_rel, vertical))
+        v_descent = max(-float(np.dot(v_rel, vertical)), 0.0)
         v_horiz_vec = v_rel - np.dot(v_rel, vertical) * vertical
         v_horiz_mag = float(np.linalg.norm(v_horiz_vec))
 
-        # --- Landing burn persistence ---
+        # --- Landing burn persistence latch ---
         # Once ignited, keep the burn on until touchdown or propellant exhaustion.
         # The energy-based ignite flag can momentarily flip False once the vehicle
         # decelerates fast enough that the kinematics estimate h_ignite * SF drops
@@ -804,66 +807,99 @@ def compute_booster_guidance(
         # timestep and the vehicle impacts at near-ballistic speed.
         if burn_params['ignite'] or gs.booster_landing_burn_started:
             gs.booster_landing_burn_started = True
-
-            # --- Lateral velocity zeroing ---
-            # Blend thrust direction from retrograde toward vertical as
-            # horizontal velocity decreases.  This drives v_horizontal -> 0
-            # at touchdown instead of just pointing retrograde.
-            #
-            # At high v_horiz (>200 m/s): steer at atan(v_h/v_d) to kill both
-            # At low v_horiz (<1 m/s):    pure vertical for final descent
-            # Uses air-relative velocity so touchdown converges in the
-            # rotating Earth frame.
-            if v_horiz_mag > 1.0 and v_descent > 1.0:
-                horiz_retro = -v_horiz_vec / v_horiz_mag
-                steer_angle = float(np.arctan2(v_horiz_mag, max(v_descent, 1.0)))
-                steer_angle = min(steer_angle, np.radians(45.0))
-                desired_dir = (np.cos(steer_angle) * vertical
-                               + np.sin(steer_angle) * horiz_retro)
-                desired_dir /= max(np.linalg.norm(desired_dir), 1e-9)
-            elif v_horiz_mag > 1.0:
-                desired_dir = retrograde if v_rel_norm > 1.0 else vertical
-            else:
-                desired_dir = vertical
-
             thrust_on = True
 
-            # Throttle — variable-mass continuous control law:
-            #
-            #   T_req(t) = m(t) * [v_eff²/(2h) + g_local]
-            #   θ(t)     = T_req(t) / T_max
-            #
-            # Physical meaning: at each instant, command the thrust that would
-            # produce exactly the net deceleration needed to stop in the
-            # remaining altitude (kinematic estimate), plus gravity compensation.
-            # Using current m(t) makes this fully mass-aware — as propellant
-            # burns, m decreases, T/m increases, and θ decreases naturally
-            # without needing an external correction.
-            #
-            # Note: we compute this directly from state rather than reading
-            # burn_params['throttle'], because burn_params['throttle'] is set to
-            # 0.0 when burn_params['ignite'] = False (i.e., when the persistence
-            # latch is holding the burn on).  Computing directly ensures the
-            # correct throttle in both the ignite=True and latch-only cases.
             g_loc = float(C.MU_EARTH / (float(np.linalg.norm(r)) ** 2))
             t_accel = float(C.THRUST_MAGNITUDE / max(m, 1.0))
-            v_eff = float(np.sqrt(max(v_descent, 0.0) ** 2 + v_horiz_mag ** 2))
-            if v_eff < 1.0:
-                throttle = 0.0  # Effectively at rest — kill thrust
+            h = max(altitude, 0.5)
+
+            # ----------------------------------------------------------------
+            # Throttle: variable-mass continuous control law
+            #
+            #   a_vert_needed = v_descent² / (2h) + g_local
+            #
+            # Physical meaning: the net upward acceleration required at this
+            # instant to arrive at h=0 with v_descent=0, accounting for
+            # gravity.  Using current m(t) makes this fully mass-aware as
+            # propellant burns.  No lower clip — allows smooth approach to 0
+            # as v and h simultaneously → 0 (suicide-burn curve).
+            # ----------------------------------------------------------------
+            a_vert_needed = v_descent ** 2 / (2.0 * h) + g_loc
+
+            # ----------------------------------------------------------------
+            # ZEM/ZEV Landing Divert Guidance
+            # ----------------------------------------------------------------
+            # Purpose: steer the booster to arrive over the target landing pad
+            # with zero horizontal velocity at touchdown, rather than just
+            # killing lateral velocity wherever the vehicle happens to be.
+            #
+            # Theory (Battin, "Mathematics & Methods of Astrodynamics", §9.3;
+            # also Apollo powered-descent and Falcon-9 RTLS guidance):
+            #
+            #   Zero-Effort Miss (ZEM): horizontal distance to pad if no
+            #     horizontal thrust is applied for the remaining t_go seconds.
+            #
+            #     ZEM = r_err_horiz − v_horiz · t_go
+            #
+            #   Zero-Effort Velocity (ZEV): horizontal velocity remaining at
+            #     touchdown if no thrust is applied = v_horiz (current).
+            #
+            #   Optimal (min-ΔV) divert command:
+            #
+            #     a_divert = (6/t_go²) · ZEM − (2/t_go) · v_horiz
+            #
+            # This drives both position error and lateral velocity to zero at
+            # t = t_go with the minimum integrated thrust expenditure.
+            # ----------------------------------------------------------------
+
+            # Time-to-go: kinematic constant-decel estimate
+            #   from h = v_d·t − ½(a_net)·t²  →  t_go ≈ 2h / v_descent
+            t_go = max(2.0 * h / max(v_descent, 1.0), 1.0)
+
+            # Horizontal position error in surface-tangent plane
+            r_to_pad = launch_site - r
+            r_err_horiz = r_to_pad - float(np.dot(r_to_pad, vertical)) * vertical
+
+            # ZEM and divert command
+            zem = r_err_horiz - v_horiz_vec * t_go
+            a_divert = (6.0 / (t_go ** 2)) * zem - (2.0 / t_go) * v_horiz_vec
+
+            # Thrust budget constraint (hard):
+            #   Vertical authority takes priority.  After allocating thrust
+            #   for a_vert_needed, whatever remains can be used for divert.
+            #
+            #   a_avail_horiz = sqrt( t_accel² − min(a_vert, t_accel)² )
+            #
+            # This guarantees throttle ≤ 1.0 and that the vertical
+            # deceleration requirement is always fully met.
+            #
+            # Tilt constraint (soft, secondary):
+            #   Never tilt more than 45° from vertical for structural safety
+            #   and to preserve attitude control authority.
+            #
+            #   a_horiz_tilt_limit = a_vert_needed × tan(45°) = a_vert_needed
+            #
+            # The effective horizontal budget is the minimum of both.
+            a_vert_for_budget = min(a_vert_needed, t_accel)
+            a_avail_horiz = float(np.sqrt(
+                max(t_accel ** 2 - a_vert_for_budget ** 2, 0.0)
+            ))
+            _tan45 = 1.0  # tan(45°)
+            a_horiz_budget = min(a_avail_horiz, a_vert_for_budget * _tan45)
+            a_divert_mag = float(np.linalg.norm(a_divert))
+            if a_divert_mag > a_horiz_budget and a_divert_mag > 1e-6:
+                a_divert = a_divert * (a_horiz_budget / a_divert_mag)
+
+            # Build total commanded acceleration → thrust direction + throttle
+            if v_descent < 1.0 and v_horiz_mag < 1.0:
+                # Effectively at rest — kill thrust
+                throttle = 0.0
+                desired_dir = vertical
             else:
-                # No lower clip: the formula can smoothly approach 0 as
-                # v and h simultaneously → 0 (classical suicide-burn curve).
-                # Clamping to a positive minimum would over-brake at low
-                # altitude, stopping the vehicle above h=0 and causing a
-                # free-fall impact.  Allowing throttle → 0 lets the engine
-                # follow the exact variable-mass touchdown trajectory.
-                a_req = v_eff ** 2 / (2.0 * max(altitude, 0.5)) + g_loc
-                throttle = float(np.clip(a_req / max(t_accel, 1e-6), 0.0, 1.0))
-            # Floor throttle when high lateral speed demands more braking
-            if v_horiz_mag > 200.0:
-                throttle = max(throttle, 0.80)
-            elif v_horiz_mag > 80.0:
-                throttle = max(throttle, 0.60)
+                a_cmd = a_vert_needed * vertical + a_divert
+                a_cmd_mag = float(np.linalg.norm(a_cmd))
+                desired_dir = a_cmd / max(a_cmd_mag, 1e-6)
+                throttle = float(np.clip(a_cmd_mag / max(t_accel, 1e-6), 0.0, 1.0))
         else:
             desired_dir = retrograde
             thrust_on = False
