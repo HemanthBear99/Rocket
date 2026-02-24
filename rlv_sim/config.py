@@ -53,9 +53,9 @@ class SimulationConfig:
     pitchover_start_altitude: float = C.PITCHOVER_START_ALTITUDE
     pitchover_end_altitude: float = C.PITCHOVER_END_ALTITUDE
     pitchover_angle: float = C.PITCHOVER_ANGLE
-    booster_boostback_budget_kg: float = 30000.0
+    booster_boostback_budget_kg: float = 30300.0
     booster_entry_budget_kg: float = 6000.0
-    booster_landing_reserve_kg: float = 9000.0
+    booster_landing_reserve_kg: float = 8700.0
     booster_apogee_target_km: float = 160.0
     booster_entry_interface_altitude_m: float = 70000.0
     booster_entry_burn_min_altitude_m: float = 35000.0

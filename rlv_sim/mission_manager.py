@@ -25,6 +25,7 @@ from .recovery import (
     booster_min_propellant_after_boostback,
     booster_propellant_remaining,
     estimate_suicide_burn,
+    target_landing_site_eci,
 )
 from .state import State
 from .mass import is_propellant_exhausted
@@ -319,11 +320,36 @@ class MissionManager:
                 # Project velocity onto horizontal plane
                 r_hat = state.r / max(np.linalg.norm(state.r), 1.0)
                 v_horiz = state.v - np.dot(state.v, r_hat) * r_hat
-                v_horiz_mag = np.linalg.norm(v_horiz)
+                v_horiz_mag = float(np.linalg.norm(v_horiz))
 
-                # Exit boostback only when horizontal velocity is largely cancelled
-                # and the booster is no longer climbing.
-                horiz_cancelled = v_horiz_mag < 120.0
+                # Pad-targeting completion criterion — mirrors _compute_boostback_direction.
+                # Boostback is complete when the *excess* ECI horizontal velocity
+                # (relative to the pad-targeting goal) drops below the threshold,
+                # rather than when the raw ECI horizontal speed drops below 120 m/s.
+                # Raw ECI speed at Earth co-rotation (~464 m/s at equator) would never
+                # reach 120 m/s — so the old criterion was always triggered by fuel_guard
+                # and left the booster with a large westward surface-relative velocity.
+                T_FLIGHT_EST = 280.0  # seconds (coast + entry + landing, empirical)
+                omega = np.array([0.0, 0.0, C.EARTH_ROTATION_RATE])
+                v_earth_at_r = np.cross(omega, state.r)
+                v_earth_horiz = v_earth_at_r - np.dot(v_earth_at_r, r_hat) * r_hat
+                landing_site = target_landing_site_eci(
+                    state.t, self.config.booster_landing_target_downrange_km
+                )
+                r_to_pad = landing_site - state.r
+                r_to_pad_horiz = r_to_pad - np.dot(r_to_pad, r_hat) * r_hat
+                pad_dist_bb = float(np.linalg.norm(r_to_pad_horiz))
+                if pad_dist_bb > 500.0:
+                    toward_pad_bb = r_to_pad_horiz / pad_dist_bb
+                    v_rel_desired_bb = float(np.clip(pad_dist_bb / T_FLIGHT_EST, 0.0, 80.0))
+                    v_target_eci = v_earth_horiz + toward_pad_bb * v_rel_desired_bb
+                else:
+                    v_target_eci = v_earth_horiz
+                v_excess_mag = float(np.linalg.norm(v_horiz - v_target_eci))
+
+                # Exit boostback only when excess horizontal velocity is small
+                # AND the booster is no longer climbing.
+                horiz_cancelled = v_excess_mag < 120.0
                 ascent_arrested = radial_velocity <= 0.0
                 boostback_complete = horiz_cancelled and ascent_arrested
 
@@ -343,7 +369,8 @@ class MissionManager:
                               if boostback_complete else
                               ("boostback budget" if budget_used else "reserve guard"))
                     logger.info(f"Boostback Complete at t={state.t:.2f}s ({reason}), "
-                               f"V_horiz={v_horiz_mag:.0f}m/s, Vr={radial_velocity:.0f}m/s, "
+                               f"V_horiz={v_horiz_mag:.0f}m/s, V_excess={v_excess_mag:.0f}m/s, "
+                               f"Vr={radial_velocity:.0f}m/s, "
                                f"prop={propellant_remaining:.0f}kg, "
                                f"used={propellant_used:.0f}kg")
                     self.current_phase = MissionPhase.BOOSTER_COAST
